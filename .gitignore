@@ -39,3 +39,8 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# KidGo 本地資料庫（ADR-0001：資料庫是一個本地檔案，不進版控）
+/data/*.db
+/data/*.db-shm
+/data/*.db-wal
