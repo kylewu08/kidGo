@@ -68,6 +68,41 @@ describe("作息契合度（30%）", () => {
     expect(score).toBe(1);
   });
 
+  it("剛過時段邊界時分數線性遞減，不是瞬間歸零", () => {
+    // morning 到 11:30 結束，柔化寬度 30 分 → 11:45 出發拿一半的時段分數。
+    const place = makePlace({ bestTimeSlots: ["morning"] });
+    const justInside = scoreSchedule(place, makeChild({ napWindows: [] }), timelineFrom("11:29", place), SATURDAY_9AM);
+    const justOutside = scoreSchedule(place, makeChild({ napWindows: [] }), timelineFrom("11:31", place), SATURDAY_9AM);
+
+    // 差兩分鐘不該差掉整整一半的作息分數
+    expect(justInside - justOutside).toBeLessThan(0.05);
+    expect(justOutside).toBeGreaterThan(0);
+  });
+
+  it("離時段邊界越遠分數越低，超過柔化寬度後歸零", () => {
+    const place = makePlace({ bestTimeSlots: ["morning"] });
+    const noNap = makeChild({ napWindows: [] });
+    const at1145 = scoreSchedule(place, noNap, timelineFrom("11:45", place), SATURDAY_9AM);
+    const at1200 = scoreSchedule(place, noNap, timelineFrom("12:00", place), SATURDAY_9AM);
+    const at1300 = scoreSchedule(place, noNap, timelineFrom("13:00", place), SATURDAY_9AM);
+
+    // 11:45 是邊界後 15 分，柔化寬度 30 分 → 時段分數剩一半
+    expect(at1145).toBeCloseTo(
+      SCORING.schedule.slotMatchShare * 0.5 + SCORING.schedule.napFitShare,
+      5,
+    );
+    expect(at1200).toBeLessThan(at1145);
+    expect(at1300).toBe(SCORING.schedule.napFitShare); // 完全落空
+  });
+
+  it("地點填多個時段時，貼近其中任何一個都算數", () => {
+    const twoSlots = makePlace({ bestTimeSlots: ["early_morning", "post_nap"] });
+    const noNap = makeChild({ napWindows: [] });
+    // 15:00 落在 post_nap（14:30–16:30）內
+    const score = scoreSchedule(twoSlots, noNap, timelineFrom("15:00", twoSlots), SATURDAY_9AM);
+    expect(score).toBe(1);
+  });
+
   it("地點還沒填 bestTimeSlots 時給中性分數，新建檔的地點不會永遠排不上來", () => {
     const place = makePlace({ bestTimeSlots: [] });
     const score = scoreSchedule(place, makeChild(), timelineFrom("09:00", place), SATURDAY_9AM);

@@ -48,6 +48,16 @@ export const SCORING = {
      */
     napConflictScore: 0,
     /**
+     * 時段邊界的柔化寬度（分鐘）。
+     *
+     * 在 bestTimeSlots 區間內拿滿分；離開區間後於此寬度內線性遞減到 0。
+     * 例如 morning 到 11:30 結束、softEdge 30 分，則 11:45 出發拿一半分數。
+     *
+     * 不用硬邊界的理由：11:29 出發拿 15 分、11:31 出發拿 0 分，
+     * 差兩分鐘差 15 分。那個懸崖不對應任何真實的育兒經驗。
+     */
+    softEdgeMinutes: 30,
+    /**
      * 地點沒有填 bestTimeSlots 時，時段配對這一項的分數。
      * 與 age.unknownSweetSpot 同樣的道理：未知不等於不適合，
      * 否則剛建檔的地點永遠排不上來，而 P3「窄而深」意味著清單裡隨時都有新地點。

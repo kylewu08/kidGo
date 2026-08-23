@@ -12,7 +12,7 @@
 import type { Child, Place, Visit } from "@/lib/db/schema";
 import { ageInMonths } from "@/lib/schedule/napStage";
 import { DEFAULT_EXCLUDE_RECENT_DAYS } from "./thresholds";
-import { atClock, forecastPeak, overlaps, timeSlotOf } from "./timeline";
+import { atClock, forecastPeak, overlaps, slotProximity } from "./timeline";
 import type {
   RecommendContext,
   ScoreBreakdown,
@@ -40,6 +40,9 @@ function daysBetween(from: string, to: Date): number {
 /**
  * 兩件事各佔一半：現在這個時段適不適合去這裡，以及行程會不會撞到午睡。
  *
+ * 時段配對用柔化邊界（slotProximity）而非硬性命中，理由見 timeline.ts。
+ * 地點填了多個時段時取最接近的那一個。
+ *
  * 設計架構書 §2 與 §6.2 對「撞到午睡」的歸屬有矛盾（一個說剔除、一個說評分）。
  * 已裁定依 §6.2 實作為**評分**：衝突時作息分數的一半歸零，總分扣 15 分，
  * 但地點不會從清單消失。完整理由見 docs/adr/0004-nap-conflict-scores-not-filters.md。
@@ -57,8 +60,13 @@ function scoreSchedule(
     if (place.bestTimeSlots.length === 0) {
       return SCORING.schedule.unknownSlotsScore;
     }
-    const slot = timeSlotOf(timeline.departAt);
-    return slot !== null && place.bestTimeSlots.includes(slot) ? 1 : 0;
+    // 取最接近的那個時段。地點常常填兩個時段（例如清晨與午睡後），
+    // 只要貼近其中一個就算數。
+    return Math.max(
+      ...place.bestTimeSlots.map((slot) =>
+        slotProximity(timeline.departAt, slot, SCORING.schedule.softEdgeMinutes),
+      ),
+    );
   })();
 
   const napFit = (() => {

@@ -37,6 +37,32 @@ export function hourOfDay(at: Date): number {
   return at.getHours() + at.getMinutes() / 60;
 }
 
+/**
+ * 某個時刻與一個時段的接近程度，0–1。
+ *
+ * 區間內為 1；離開區間後在 `softEdgeMinutes` 內線性遞減到 0；再遠則為 0。
+ *
+ * 用柔化邊界而非硬性判斷的理由：morning 若定義為 09:00–11:30，
+ * 硬邊界會讓 11:29 出發拿滿分、11:31 出發拿零分。差兩分鐘差 15 分，
+ * 那個懸崖不對應任何真實的育兒經驗——小孩不會在 11:30 整點變得不適合出門。
+ */
+export function slotProximity(
+  at: Date,
+  slot: TimeSlot,
+  softEdgeMinutes: number,
+): number {
+  const range = TIME_SLOT_RANGES[slot];
+  const hour = hourOfDay(at);
+  if (hour >= range.startHour && hour < range.endHour) return 1;
+
+  const softEdgeHours = softEdgeMinutes / 60;
+  if (softEdgeHours <= 0) return 0;
+
+  const distance =
+    hour < range.startHour ? range.startHour - hour : hour - range.endHour;
+  return Math.max(0, 1 - distance / softEdgeHours);
+}
+
 /** 某個時刻落在哪個 TimeSlot。清晨與夜間不屬於任何時段，回傳 null。 */
 export function timeSlotOf(at: Date): TimeSlot | null {
   const hour = hourOfDay(at);
