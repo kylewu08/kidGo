@@ -8,10 +8,18 @@
 
 import "server-only";
 
-import { eq } from "drizzle-orm";
+import { asc, eq, sql } from "drizzle-orm";
 
 import { db } from "./index";
-import { homeBase, type HomeBase, type NewHomeBase } from "./schema";
+import {
+  homeBase,
+  places,
+  visits,
+  type HomeBase,
+  type NewHomeBase,
+  type NewPlace,
+  type Place,
+} from "./schema";
 
 /** HomeBase 是單列表，id 固定為這個值 */
 const HOME_BASE_ID = "default";
@@ -39,4 +47,63 @@ export async function saveHomeBase(
     .insert(homeBase)
     .values({ ...values, id: HOME_BASE_ID })
     .onConflictDoUpdate({ target: homeBase.id, set: values });
+}
+
+// ---------------------------------------------------------------------------
+// Place
+// ---------------------------------------------------------------------------
+
+/** 依名稱排序。v1 只有 40–60 筆（P3），不需要分頁。 */
+export async function listPlaces(): Promise<Place[]> {
+  return db.select().from(places).orderBy(asc(places.name));
+}
+
+export async function getPlace(id: string): Promise<Place | null> {
+  const rows = await db.select().from(places).where(eq(places.id, id)).limit(1);
+  return rows[0] ?? null;
+}
+
+export async function createPlace(values: Omit<NewPlace, "id">): Promise<string> {
+  const id = crypto.randomUUID();
+  await db.insert(places).values({ ...values, id });
+  return id;
+}
+
+export async function updatePlace(
+  id: string,
+  values: Omit<NewPlace, "id">,
+): Promise<void> {
+  await db.update(places).set(values).where(eq(places.id, id));
+}
+
+/** 這個地點累積了幾筆出遊紀錄 */
+export async function countVisitsForPlace(placeId: string): Promise<number> {
+  const [row] = await db
+    .select({ count: sql<number>`count(*)` })
+    .from(visits)
+    .where(eq(visits.placeId, placeId));
+  return row?.count ?? 0;
+}
+
+export type DeletePlaceResult =
+  | { ok: true }
+  | { ok: false; reason: "has_visits"; visitCount: number };
+
+/**
+ * 刪除地點。**有出遊紀錄的地點刪不掉。**
+ *
+ * 這不只是外鍵約束的技術限制。設計架構書 §12.3 說 Visit 是 append-only、
+ * 永不刪除，因為那是本產品最有價值的資產。刪掉地點會讓那些紀錄變成孤兒——
+ * 「18 個月時去某個地方撐了兩小時」，而某個地方已經不存在了。
+ *
+ * 想讓某個地點不再被推薦，正確做法是把 ageRange 或車程改掉讓它被過濾，
+ * 而不是刪除它。
+ */
+export async function deletePlace(id: string): Promise<DeletePlaceResult> {
+  const visitCount = await countVisitsForPlace(id);
+  if (visitCount > 0) {
+    return { ok: false, reason: "has_visits", visitCount };
+  }
+  await db.delete(places).where(eq(places.id, id));
+  return { ok: true };
 }

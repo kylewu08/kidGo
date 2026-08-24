@@ -17,8 +17,8 @@
  * 模擬時間必須落在 CWA 預報涵蓋的範圍內（未來約 3 天），否則天氣因子
  * 會全部落到「沒有資料」的中性分數。
  *
- * 出發點讀資料庫（先到 /settings/home 設定）。地點仍是寫死的示範資料——
- * Phase 1 的地點 CRUD 還沒做。
+ * 出發點與地點都讀資料庫。先到 /settings/home 設定出發點，
+ * 再到 /places 建幾個地點。
  */
 
 import Database from "better-sqlite3";
@@ -33,17 +33,48 @@ import type { CountyName } from "@/lib/weather/townships";
  * 直接開 SQLite 而不是用 lib/db/queries.ts：那個模組標了 server-only，
  * 在 RSC 以外的環境 import 會直接丟錯。這支腳本不是 Next.js 的一部分。
  */
-function readHomeBase() {
-  const db = new Database(process.env.DATABASE_URL ?? "./data/kidgo.db", {
+function openDb() {
+  return new Database(process.env.DATABASE_URL ?? "./data/kidgo.db", {
     readonly: true,
   });
-  return db
+}
+
+function readHomeBase() {
+  return openDb()
     .prepare(
       "select lat, lng, cwa_county_name as county, cwa_location_name as township, max_drive_minutes as maxDriveMinutes from home_base where id = 'default'",
     )
     .get() as
     | { lat: number; lng: number; county: string; township: string; maxDriveMinutes: number }
     | undefined;
+}
+
+/**
+ * 讀地點。JSON 欄位在 SQLite 裡是字串，這裡要自己 parse——
+ * 平常那是 Drizzle 的工作，但這支腳本不走 Drizzle（見 openDb 上方的說明）。
+ */
+function readPlaces(): Place[] {
+  const rows = openDb().prepare("select * from places order by name").all() as Record<string, unknown>[];
+  return rows.map((r) => ({
+    id: r.id, ownerId: r.owner_id, name: r.name, category: r.category,
+    lat: r.lat, lng: r.lng, address: r.address,
+    driveMinutes: r.drive_minutes, parking: r.parking,
+    energyBurn: r.energy_burn, typicalDurationMin: r.typical_duration_min,
+    bestTimeSlots: JSON.parse(r.best_time_slots as string),
+    ageRange: JSON.parse(r.age_range as string),
+    sweetSpotAge: r.sweet_spot_age ? JSON.parse(r.sweet_spot_age as string) : null,
+    indoor: r.indoor, shadeLevel: r.shade_level,
+    strollerFriendly: !!r.stroller_friendly, hasChangingTable: !!r.has_changing_table,
+    hasNursingSpace: !!r.has_nursing_space, hasFoodOnSite: !!r.has_food_on_site,
+    hasWaterPlay: !!r.has_water_play, needsReservation: !!r.needs_reservation,
+    quietHours: r.quiet_hours, crowdLevel: JSON.parse(r.crowd_level as string),
+    costPerFamily: r.cost_per_family,
+    indoorBackupPlaceIds: JSON.parse(r.indoor_backup_place_ids as string),
+    personalRating: r.personal_rating, notes: r.notes,
+    tags: JSON.parse(r.tags as string),
+    fieldSources: JSON.parse(r.field_sources as string),
+    lastVerifiedAt: r.last_verified_at,
+  })) as Place[];
 }
 
 const home = readHomeBase();
@@ -56,36 +87,17 @@ const HOME = { lat: home.lat, lng: home.lng };
 const COUNTY = home.county as CountyName;
 const TOWNSHIP = home.township;
 
-/** 四個真實地點。driveMinutes 是隨手估的基準值，正好用來對照即時路況。 */
-const places: Place[] = [
-  demo({ id: "daan-park", name: "大安森林公園", category: "park", lat: 25.0299, lng: 121.5361,
-        driveMinutes: 20, indoor: "outdoor", shadeLevel: 2, energyBurn: 4, typicalDurationMin: 120 }),
-  demo({ id: "taipei-kids", name: "兒童新樂園", category: "indoor_playground", lat: 25.0955, lng: 121.5148,
-        driveMinutes: 25, indoor: "mixed", shadeLevel: 2, energyBurn: 3, typicalDurationMin: 180 }),
-  demo({ id: "yangmingshan", name: "陽明山", category: "trail", lat: 25.1553, lng: 121.5453,
-        driveMinutes: 40, indoor: "outdoor", shadeLevel: 3, energyBurn: 5, typicalDurationMin: 150 }),
-  demo({ id: "bitan", name: "碧潭", category: "park", lat: 24.9573, lng: 121.5378,
-        driveMinutes: 25, indoor: "outdoor", shadeLevel: 1, energyBurn: 3, typicalDurationMin: 90 }),
-];
+const places = readPlaces();
+if (places.length === 0) {
+  console.error("資料庫裡還沒有任何地點。先到 /places 建幾個，再跑這支腳本。");
+  process.exit(1);
+}
 
 const children: Child[] = [
   { id: "c1", name: "示範小孩", birthDate: "2024-02-01", napStage: "one_nap",
     wakeTime: "07:00", napWindows: [{ start: "12:30", end: "14:30" }],
     bedTime: "20:30", mobility: "stroller", notes: null },
 ];
-
-function demo(p: Partial<Place> & Pick<Place, "id" | "name" | "lat" | "lng" | "driveMinutes">): Place {
-  return {
-    ownerId: "local", category: "park", address: "", parking: "moderate",
-    energyBurn: 3, typicalDurationMin: 120, bestTimeSlots: ["morning", "post_nap"],
-    ageRange: { minMonths: 6, maxMonths: 120 }, sweetSpotAge: { minMonths: 12, maxMonths: 72 },
-    indoor: "outdoor", shadeLevel: 2, strollerFriendly: true, hasChangingTable: true,
-    hasNursingSpace: true, hasFoodOnSite: true, hasWaterPlay: false, needsReservation: false,
-    quietHours: null, crowdLevel: { weekday: 2, weekend: 4 }, costPerFamily: null,
-    indoorBackupPlaceIds: [], personalRating: null, notes: null, tags: [],
-    fieldSources: {}, lastVerifiedAt: null, ...p,
-  } as Place;
-}
 
 function clock(d: Date) {
   return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
@@ -107,6 +119,7 @@ const weather = await fetchCwaForecast({
   county: COUNTY, township: TOWNSHIP, apiKey: process.env.CWA_API_KEY!,
 });
 console.log(`出發點      ${COUNTY}${TOWNSHIP}（${HOME.lat}, ${HOME.lng}）車程上限 ${home.maxDriveMinutes} 分`);
+console.log(`地點        資料庫裡有 ${places.length} 個`);
 const nowSlot = weather.slots.find((s) => s.startsAt > now) ?? weather.slots[0];
 console.log(`天氣（${COUNTY}${TOWNSHIP}）  ${nowSlot.condition}  降雨 ${nowSlot.rainProbability}%  體感 ${nowSlot.apparentTempC}°C`);
 
