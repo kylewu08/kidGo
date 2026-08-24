@@ -12,13 +12,17 @@ import { asc, eq, sql } from "drizzle-orm";
 
 import { db } from "./index";
 import {
+  children,
   homeBase,
   places,
   visits,
   type HomeBase,
   type NewHomeBase,
+  type Child,
+  type NewChild,
   type NewPlace,
   type Place,
+  type Visit,
 } from "./schema";
 
 /** HomeBase 是單列表，id 固定為這個值 */
@@ -106,4 +110,51 @@ export async function deletePlace(id: string): Promise<DeletePlaceResult> {
   }
   await db.delete(places).where(eq(places.id, id));
   return { ok: true };
+}
+
+// ---------------------------------------------------------------------------
+// Child
+// ---------------------------------------------------------------------------
+
+/** 依生日排序，老大在前。 */
+export async function listChildren(): Promise<Child[]> {
+  return db.select().from(children).orderBy(asc(children.birthDate));
+}
+
+export async function getChild(id: string): Promise<Child | null> {
+  const rows = await db.select().from(children).where(eq(children.id, id)).limit(1);
+  return rows[0] ?? null;
+}
+
+export async function createChild(values: Omit<NewChild, "id">): Promise<string> {
+  const id = crypto.randomUUID();
+  await db.insert(children).values({ ...values, id });
+  return id;
+}
+
+export async function updateChild(
+  id: string,
+  values: Omit<NewChild, "id">,
+): Promise<void> {
+  await db.update(children).set(values).where(eq(children.id, id));
+}
+
+/**
+ * 刪除小孩。
+ *
+ * 不像 Place 那樣擋——Visit.childIds 是 JSON 陣列沒有外鍵，
+ * 而且刪掉一個小孩不會讓歷史紀錄失去意義（childAgesMonths 是快照，
+ * 設計架構書 §5.3 就是為了這種情況才存快照而不是反推）。
+ */
+export async function deleteChild(id: string): Promise<void> {
+  await db.delete(children).where(eq(children.id, id));
+}
+
+// ---------------------------------------------------------------------------
+// Visit
+// ---------------------------------------------------------------------------
+
+/** 全部出遊紀錄。v1 的量很小，推薦引擎一次吃全部（它是純函式，不讀 DB）。 */
+export async function listVisits(): Promise<Visit[]> {
+  return db.select().from(visits);
 }

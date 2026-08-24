@@ -8,22 +8,22 @@
  * `context.timestamp` 由呼叫端傳入而非在函式內取 `new Date()`，
  * 同樣是為了可測試與可重現。
  *
- * ⚠️ 目前實作到 Stage 1 + Stage 2。尚缺 Stage 3 多樣性調整（§6.4）與
- * `reasons` 規則模板（§6.5），所以回傳型別是 `ScoredPlace[]` 而非
- * §8.3 所定義的 `Recommendation[]`。那兩項完成後型別會收斂。
+ * ⚠️ 尚缺 Stage 3 多樣性調整（§6.4）與 backupPlace（雨天備案），
+ * 兩者都排在 Phase 2（§11）。
  */
 
 import type { Place, Visit } from "@/lib/db/schema";
 import { applyStage1 } from "./filters";
+import { explain } from "./reasons";
 import { breakdownForChild, totalScore } from "./scoring";
-import { buildTimeline, effectiveDriveMinutes } from "./timeline";
-import type { FilterResult, RecommendContext, ScoredPlace } from "./types";
+import { buildTimeline, effectiveDriveMinutes, formatClock } from "./timeline";
+import type { FilterResult, RecommendContext, Recommendation } from "./types";
 
 export function recommend(
   places: Place[],
   visits: Visit[],
   context: RecommendContext,
-): ScoredPlace[] {
+): Recommendation[] {
   if (context.children.length === 0) {
     // 沒有小孩就沒有推薦可言。安靜地回傳全部或空陣列都會讓呼叫端難以除錯，
     // 所以直接讓它壞在最接近原因的地方。
@@ -49,7 +49,7 @@ function scorePlace(
   result: FilterResult,
   visits: Visit[],
   context: RecommendContext,
-): ScoredPlace {
+): Recommendation {
   const { place, warnings } = result;
   const { minutes: driveMinutes, source } = effectiveDriveMinutes(place, context);
   const timeline = buildTimeline(
@@ -75,6 +75,21 @@ function scorePlace(
     current.score < min.score ? current : min,
   );
 
+  // 理由取自**分數最低的那個小孩**，與顯示的總分同一個來源。
+  // 若理由講的是老大而分數扣在老二身上，使用者會看到一段前後矛盾的說明。
+  const weakestChild =
+    context.children.find((c) => c.id === weakest.childId) ?? context.children[0];
+
+  const explanation = explain({
+    place,
+    breakdown: weakest.breakdown,
+    weakestChild,
+    context,
+    timeline,
+    driveMinutes,
+    visits,
+  });
+
   return {
     place,
     driveMinutes,
@@ -82,7 +97,12 @@ function scorePlace(
     score: weakest.score,
     scoreBreakdown: weakest.breakdown,
     perChildScores: perChild.map(({ childId, score }) => ({ childId, score })),
-    warnings,
+    reasons: explanation.reasons,
+    // Stage 1 的警示（需預約、沒尿布台、路況）與評分階段的警示（午睡、降雨、高溫）
+    // 合併成一份給 UI，使用者不需要知道它們來自不同階段。
+    warnings: [...warnings, ...explanation.warnings],
+    suggestedDeparture: formatClock(timeline.departAt),
+    suggestedReturn: formatClock(timeline.homeAt),
     timeline,
   };
 }
@@ -91,12 +111,14 @@ export { applyStage1 } from "./filters";
 export { breakdownForChild, totalScore } from "./scoring";
 export { THRESHOLDS, TIME_SLOT_RANGES, DEFAULT_EXCLUDE_RECENT_DAYS } from "./thresholds";
 export { SCORING, WEIGHTS } from "./weights";
+export { explain, REASON_THRESHOLDS } from "./reasons";
+export { formatClock } from "./timeline";
 export type {
   FilterResult,
   RecommendContext,
+  Recommendation,
   RejectionReason,
   ScoreBreakdown,
-  ScoredPlace,
   TripTimeline,
   WeatherForecast,
   WeatherSlot,

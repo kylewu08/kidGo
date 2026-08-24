@@ -32,6 +32,11 @@ export function windowMinutes(window: TimeWindow): number {
   return parseClock(window.end) - parseClock(window.start);
 }
 
+/** Date → "HH:MM" */
+export function formatClock(at: Date): string {
+  return `${String(at.getHours()).padStart(2, "0")}:${String(at.getMinutes()).padStart(2, "0")}`;
+}
+
 /** 從當日 00:00 起算的小時數（含小數），用於比對 TIME_SLOT_RANGES */
 export function hourOfDay(at: Date): number {
   return at.getHours() + at.getMinutes() / 60;

@@ -89,13 +89,12 @@ export type ScoreBreakdown = Record<
 >;
 
 /**
- * Stage 1 + Stage 2 的輸出。
+ * 推薦結果（設計架構書 §6.5）。
  *
- * ⚠️ 這**還不是** §6.5 定義的 `Recommendation`。缺 Stage 3 多樣性調整（§6.4）、
- * `reasons` 規則模板（§6.5）與 `suggestedDeparture` / `backupPlace`。
- * 那些完成後，index.ts 的回傳型別會收斂為 `Recommendation[]`（§8.3 的簽章）。
+ * ⚠️ 仍缺 §6.4 的 Stage 3 多樣性調整與 `backupPlace`（雨天備案），
+ * 兩者都排在 Phase 2（§11）。除此之外的欄位都已就位。
  */
-export interface ScoredPlace {
+export interface Recommendation {
   place: Place;
   /** 這次評分實際採用的車程（分鐘）。可能來自即時路況，也可能是基準值。 */
   driveMinutes: number;
@@ -107,8 +106,22 @@ export interface ScoredPlace {
   scoreBreakdown: ScoreBreakdown;
   /** 每個小孩各自的總分。多小孩時 score 取其最低值。 */
   perChildScores: { childId: string; score: number }[];
+  /**
+   * 人話的推薦理由，由 lib/recommend/reasons.ts 的規則模板產生。
+   *
+   * 呈現層的 LLM 可以潤飾，**不得改變語意，不得新增規則沒有產生的理由**
+   * （AGENTS.md、ADR-0002）。
+   */
+  reasons: string[];
   warnings: string[];
+  /** "HH:MM"。§6.5 的 suggestedDeparture。 */
+  suggestedDeparture: string;
+  /** "HH:MM"。§6.5 的 suggestedReturn。 */
+  suggestedReturn: string;
   timeline: TripTimeline;
 }
+
+/** @deprecated 舊名稱，保留以免外部引用一次全斷。用 Recommendation。 */
+export type ScoredPlace = Recommendation;
 
 export type { Child, Place, TimeWindow, Visit };
