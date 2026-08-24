@@ -17,17 +17,44 @@
  * 模擬時間必須落在 CWA 預報涵蓋的範圍內（未來約 3 天），否則天氣因子
  * 會全部落到「沒有資料」的中性分數。
  *
- * 地點是寫死的示範資料，不是資料庫內容——Phase 1 的地點 CRUD 還沒做。
+ * 出發點讀資料庫（先到 /settings/home 設定）。地點仍是寫死的示範資料——
+ * Phase 1 的地點 CRUD 還沒做。
  */
+
+import Database from "better-sqlite3";
 
 import type { Child, Place } from "@/lib/db/schema";
 import { recommend } from "@/lib/recommend";
 import { fetchDriveMinutes } from "@/lib/routes/matrix";
 import { fetchCwaForecast } from "@/lib/weather/cwa";
+import type { CountyName } from "@/lib/weather/townships";
 
-const HOME = { lat: 25.01154, lng: 121.450888 }; // 板橋區
-const COUNTY = "新北市" as const;
-const TOWNSHIP = "板橋區";
+/**
+ * 直接開 SQLite 而不是用 lib/db/queries.ts：那個模組標了 server-only，
+ * 在 RSC 以外的環境 import 會直接丟錯。這支腳本不是 Next.js 的一部分。
+ */
+function readHomeBase() {
+  const db = new Database(process.env.DATABASE_URL ?? "./data/kidgo.db", {
+    readonly: true,
+  });
+  return db
+    .prepare(
+      "select lat, lng, cwa_county_name as county, cwa_location_name as township, max_drive_minutes as maxDriveMinutes from home_base where id = 'default'",
+    )
+    .get() as
+    | { lat: number; lng: number; county: string; township: string; maxDriveMinutes: number }
+    | undefined;
+}
+
+const home = readHomeBase();
+if (!home) {
+  console.error("還沒有設定出發點。先到 /settings/home 設定，再跑這支腳本。");
+  process.exit(1);
+}
+
+const HOME = { lat: home.lat, lng: home.lng };
+const COUNTY = home.county as CountyName;
+const TOWNSHIP = home.township;
 
 /** 四個真實地點。driveMinutes 是隨手估的基準值，正好用來對照即時路況。 */
 const places: Place[] = [
@@ -79,6 +106,7 @@ const WEEKDAYS = ["日", "一", "二", "三", "四", "五", "六"];
 const weather = await fetchCwaForecast({
   county: COUNTY, township: TOWNSHIP, apiKey: process.env.CWA_API_KEY!,
 });
+console.log(`出發點      ${COUNTY}${TOWNSHIP}（${HOME.lat}, ${HOME.lng}）車程上限 ${home.maxDriveMinutes} 分`);
 const nowSlot = weather.slots.find((s) => s.startsAt > now) ?? weather.slots[0];
 console.log(`天氣（${COUNTY}${TOWNSHIP}）  ${nowSlot.condition}  降雨 ${nowSlot.rainProbability}%  體感 ${nowSlot.apparentTempC}°C`);
 
@@ -102,12 +130,12 @@ try {
 // --- 3. 推薦（純函式，不碰網路）-----------------------------------------------
 const results = recommend(places, [], {
   timestamp: now, children, weather,
-  maxDriveMinutes: 45, availableWindow, liveDriveMinutes,
+  maxDriveMinutes: home.maxDriveMinutes, availableWindow, liveDriveMinutes,
 });
 
 console.log(
   `\n${now.getMonth() + 1}/${now.getDate()}（週${WEEKDAYS[now.getDay()]}）${clock(now)}` +
-    `，可用到 ${availableWindow.end}，車程上限 45 分`,
+    `，可用到 ${availableWindow.end}`,
 );
 console.log(`${places.length} 個地點 → Stage 1 之後剩 ${results.length} 個\n`);
 
