@@ -1,36 +1,123 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# KidGo
 
-## Getting Started
+「這個週末帶小孩去哪」的決策引擎。
 
-First, run the development server:
+給定「天氣 × 小孩作息階段 × 車程上限 × 現在幾點」，直接回答一到三個具體答案，
+而不是列出五十個選項讓你自己篩。
+
+- 完整需求：[`docs/設計架構書.md`](docs/設計架構書.md)
+- 給 AI 協作工具與新開發者的第一份文件：[`AGENTS.md`](AGENTS.md)
+- 架構決策與理由：[`docs/adr/`](docs/adr/)（**其中三處推翻了設計架構書，以 ADR 為準**）
+- 開發約定：[`CONTRIBUTING.md`](CONTRIBUTING.md)
+
+---
+
+## 跑起來
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm install
+cp .env.example .env.local   # 填入兩把金鑰，見下方
+npm run db:migrate           # 建立 data/kidgo.db
+npm run dev                  # http://localhost:3000
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+### 需要的金鑰
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+| 變數 | 用途 | 沒有的話 |
+|------|------|----------|
+| `CWA_API_KEY` | 中央氣象署鄉鎮天氣預報。[免費申請](https://opendata.cwa.gov.tw/) | 天氣因子拿中性分數，畫面上會說明 |
+| `GOOGLE_ROUTES_API_KEY` | Google Routes API 即時路況（ADR-0005）。需在 Google Cloud 啟用 Routes API 並綁定帳單帳戶 | 車程一律用建檔時填的基準值（P6 離線可用） |
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+**兩把都缺也跑得動**，只是精度下降。這是刻意的設計，不是容錯。
 
-## Learn More
+---
 
-To learn more about Next.js, take a look at the following resources:
+## 第一次使用
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+首頁會列出三個步驟，做完才會開始推薦：
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+1. **出發點**（`/settings/home`）— 縣市／鄉鎮兩段式選單，選完自動帶出座標。
+   這是**固定的家**，不是你當下的位置：每個地點的車程都以它為起點量出來，
+   出遊紀錄也以它為錨點累積。
+2. **小孩**（`/settings/children`）— 月齡、午睡時間、行動能力。
+   換作息階段會自動帶出常見的午睡時段，可以再改。
+3. **地點**（`/places`）— 目標是 40–60 個你**實際會去**的地方。
+   只填 Google 地圖和懶人包查不到的東西：放電強度、實際能撐多久、適合的時段。
+   營業時間和電話不用填，需要時用導航開出去就看得到。
 
-## Deploy on Vercel
+座標要從 Google 地圖複製（長按目標點）。這是唯一沒辦法從其他欄位推算的資料。
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+---
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## 在手機上用
+
+這是一個 PWA，設計上就是手機優先（ADR-0003）。但**目前只跑在你的電腦上**，
+所以手機要連進來需要同一個 Wi-Fi：
+
+```bash
+npm run dev -- -H 0.0.0.0
+```
+
+然後在手機瀏覽器打開 `http://<你電腦的區網 IP>:3000`
+（用 `ipconfig getifaddr en0` 查）。Safari 的「加入主畫面」可以把它變成 App 圖示。
+
+**限制**：電腦要開著而且醒著。決策通常在出門前於家裡做，所以這個限制在前幾週
+是可以接受的。真正的部署還沒解決，見下方「已知缺口」。
+
+---
+
+## 開發時的幾個工具
+
+### 用模擬時間預覽
+
+這個產品的輸出完全取決於「現在幾點」，晚上十一點看不出「週六早上會推薦什麼」：
+
+```
+http://localhost:3000/?now=2026-08-29T09:00
+```
+
+**只在開發模式有效，正式環境一律忽略。** 日期要落在 CWA 的預報範圍內
+（未來約三天），否則天氣會被當成沒有資料。
+
+### 端到端煙霧測試
+
+跑真實天氣 + 真實路況 + 推薦引擎，把結果印在終端機：
+
+```bash
+set -a && . ./.env.local && set +a
+npx vite-node --config vitest.config.mts --root . scripts/smoke-recommend.ts 2026-08-29T09:00 12:00
+```
+
+它會印出六個因子各自的分數，用來理解某個地點為什麼排在那個位置。
+
+### 測試
+
+```bash
+npm test        # 211 個，不需要網路也不需要金鑰
+npm run lint    # 含 AI 邊界的強制檢查
+```
+
+推薦引擎的測試名稱一律寫成判斷句，所以 `lib/recommend/__tests__/`
+讀起來就是決策層的規格書。
+
+---
+
+## 已知缺口
+
+| 項目 | 狀態 |
+|------|------|
+| 出遊紀錄（Visit）建立 | Phase 2。schema 與查詢已就緒，缺 UI。首頁因此沒有「記錄這次」按鈕 |
+| 地點歷史摘要（§10.2） | 等 Visit 有資料才有意義 |
+| Stage 3 多樣性、雨天備案 | Phase 2 |
+| AI 輔助建檔（§7） | Phase 2。前 50 筆手動建檔是確認欄位設計是否合理的唯一機會 |
+| PWA 離線快取 | Phase 2 |
+| **部署** | **未解決。** ADR-0001 選了本地 SQLite，而 Vercel 這類無狀態平台沒有持久磁碟。要真正上線需要有持久儲存的環境（Fly.io、自架、家裡的機器），或重新評估 ADR-0001 |
+| energyBurn / personalRating / crowdLevel 未進評分 | 見 [ADR-0007](docs/adr/0007-unused-place-fields-in-scoring.md)，待實際使用後再決定 |
+
+---
+
+## 驗收標準（設計架構書 §11）
+
+> 連續四個週末，開發者自己真的打開它並照建議出門。若沒有，停下來檢討，不要往下做。
+
+在那之前不要調權重——目前的權重是推測值，需要真實使用才有可調的對象。
