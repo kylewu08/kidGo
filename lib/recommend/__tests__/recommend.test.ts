@@ -248,3 +248,165 @@ describe("一個貼近真實的情境", () => {
     expect(result[0].place.id).toBe("park");
   });
 });
+
+describe("即時路況（ADR-0005）", () => {
+  /**
+   * 這一組測試守的是接 Google Routes API 的實際理由：
+   * 連假的國道路況與平常差 20–40 分鐘，而 Stage 1 的車程過濾是一道懸崖，
+   * 照平日車程判斷會放行一堆其實開不到的地點。
+   */
+
+  it("連假時即時車程超過上限，地點被剔除——即使基準值在上限內", () => {
+    // 建檔時填 40 分（平常日實測），車程上限 45 分 → 平常會通過。
+    // 連假即時路況 65 分 → 應該被剔除。
+    const places = [makePlace({ id: "far-park", driveMinutes: 40 })];
+    const context = makeContext({
+      maxDriveMinutes: 45,
+      availableWindow: { start: "09:00", end: "18:00" },
+      liveDriveMinutes: new Map([["far-park", 65]]),
+    });
+
+    expect(recommend(places, [], context)).toEqual([]);
+
+    // 對照組：同樣的地點、同樣的上限，沒有即時路況時會通過。
+    const withoutLive = recommend(
+      places,
+      [],
+      makeContext({
+        maxDriveMinutes: 45,
+        availableWindow: { start: "09:00", end: "18:00" },
+      }),
+    );
+    expect(withoutLive).toHaveLength(1);
+  });
+
+  it("路況比平常明顯慢時發出警示，說出慢了幾分鐘", () => {
+    const places = [makePlace({ id: "park", driveMinutes: 15 })];
+    const [result] = recommend(
+      places,
+      [],
+      makeContext({ liveDriveMinutes: new Map([["park", 40]]) }),
+    );
+
+    expect(result.warnings.join()).toContain("路況比平常慢約 25 分");
+  });
+
+  it("路況只差幾分鐘時不發警示——常駐的警示等於沒有警示", () => {
+    const places = [makePlace({ id: "park", driveMinutes: 15 })];
+    const [result] = recommend(
+      places,
+      [],
+      makeContext({ liveDriveMinutes: new Map([["park", 20]]) }),
+    );
+
+    expect(result.warnings.join()).not.toContain("路況");
+  });
+
+  it("路況比平常快時不發警示", () => {
+    const places = [makePlace({ id: "park", driveMinutes: 30 })];
+    const [result] = recommend(
+      places,
+      [],
+      makeContext({ liveDriveMinutes: new Map([["park", 12]]) }),
+    );
+
+    expect(result.warnings.join()).not.toContain("路況");
+  });
+
+  it("即時車程會影響車程評分，不是只用來過濾", () => {
+    const places = [makePlace({ id: "park", driveMinutes: 15 })];
+    const fast = recommend([...places], [], makeContext());
+    const slow = recommend(
+      [...places],
+      [],
+      makeContext({ liveDriveMinutes: new Map([["park", 40]]) }),
+    );
+
+    expect(slow[0].score).toBeLessThan(fast[0].score);
+  });
+
+  it("即時車程會延後到家時間，可能因此撞上午睡", () => {
+    // 基準 15 分：09:00 出發 → 11:30 到家，不撞 12:30 的午睡。
+    // 即時 50 分：09:00 出發 → 13:40 到家，撞上午睡 → 作息分數砍半。
+    const places = [makePlace({ id: "park", driveMinutes: 15, typicalDurationMin: 120 })];
+    const window = { start: "09:00", end: "18:00" };
+
+    const baseline = recommend([...places], [], makeContext({ availableWindow: window }));
+    const heavyTraffic = recommend(
+      [...places],
+      [],
+      makeContext({
+        availableWindow: window,
+        maxDriveMinutes: 60,
+        liveDriveMinutes: new Map([["park", 50]]),
+      }),
+    );
+
+    expect(baseline[0].scoreBreakdown.schedule).toBe(1);
+    expect(heavyTraffic[0].scoreBreakdown.schedule).toBeLessThan(1);
+  });
+
+  it("結果揭露採用的車程與它的來源", () => {
+    const places = [makePlace({ id: "park", driveMinutes: 15 })];
+    const [live] = recommend(
+      places,
+      [],
+      makeContext({ liveDriveMinutes: new Map([["park", 22]]) }),
+    );
+    const [baseline] = recommend(places, [], makeContext());
+
+    expect(live.driveMinutes).toBe(22);
+    expect(live.driveMinutesSource).toBe("live");
+    expect(baseline.driveMinutes).toBe(15);
+    expect(baseline.driveMinutesSource).toBe("baseline");
+  });
+});
+
+describe("離線後備（P6）", () => {
+  /**
+   * ADR-0005 選了「即時覆蓋 + 手填後備」而不是「全面改用 API」，
+   * 理由就是 P6：使用者最需要這個 App 的時刻（人在外面準備出門）
+   * 正是訊號最不穩的時候。這一組測試守住那個保證。
+   */
+
+  it("完全沒有即時路況時，功能不中斷只是精度下降", () => {
+    const places = [
+      makePlace({ id: "near", driveMinutes: 10 }),
+      makePlace({ id: "far", driveMinutes: 35 }),
+    ];
+    const result = recommend(places, [], makeContext({ maxDriveMinutes: 45 }));
+
+    expect(result.map((r) => r.place.id)).toEqual(["near", "far"]);
+    expect(result.every((r) => r.driveMinutesSource === "baseline")).toBe(true);
+  });
+
+  it("只有部分地點查得到即時路況時，其餘各自退回基準值", () => {
+    // Routes API 可能對某些目的地算不出路線（例如外島），
+    // 那些地點不該因此消失，只是精度退回基準值。
+    const places = [
+      makePlace({ id: "a", driveMinutes: 10 }),
+      makePlace({ id: "b", driveMinutes: 20 }),
+    ];
+    const result = recommend(
+      places,
+      [],
+      makeContext({ liveDriveMinutes: new Map([["a", 18]]) }),
+    );
+
+    const byId = new Map(result.map((r) => [r.place.id, r]));
+    expect(byId.get("a")!.driveMinutesSource).toBe("live");
+    expect(byId.get("a")!.driveMinutes).toBe(18);
+    expect(byId.get("b")!.driveMinutesSource).toBe("baseline");
+    expect(byId.get("b")!.driveMinutes).toBe(20);
+  });
+
+  it("空的即時路況 Map 等同於沒有提供", () => {
+    const places = [makePlace({ id: "a", driveMinutes: 10 })];
+    const empty = recommend(places, [], makeContext({ liveDriveMinutes: new Map() }));
+    const absent = recommend(places, [], makeContext());
+
+    expect(empty[0].score).toBe(absent[0].score);
+    expect(empty[0].driveMinutesSource).toBe("baseline");
+  });
+});
+

@@ -43,6 +43,16 @@ export interface RecommendContext {
   availableWindow: TimeWindow;
   /** 預設 14（THRESHOLDS.DEFAULT_EXCLUDE_RECENT_DAYS） */
   excludeRecentDays?: number;
+  /**
+   * 即時路況車程，placeId → 分鐘（ADR-0005）。
+   *
+   * 由呼叫端在**進入推薦引擎之前**取得（lib/routes/matrix.ts），
+   * 與 weather 完全相同的模式——§8.3 要求 recommend() 不呼叫網路。
+   *
+   * **缺席即代表退回 Place.driveMinutes。** 整個欄位不給也合法，
+   * 那就是離線或 API 失敗時的狀態，此時功能不中斷只是精度下降（P6）。
+   */
+  liveDriveMinutes?: ReadonlyMap<string, number>;
 }
 
 /** 一趟出遊的時間軸，Stage 1 與 Stage 2 都要用 */
@@ -87,6 +97,10 @@ export type ScoreBreakdown = Record<
  */
 export interface ScoredPlace {
   place: Place;
+  /** 這次評分實際採用的車程（分鐘）。可能來自即時路況，也可能是基準值。 */
+  driveMinutes: number;
+  /** 上面那個數字的來源。UI 可據此決定要不要標示「即時路況」。 */
+  driveMinutesSource: "live" | "baseline";
   /** 0–100 */
   score: number;
   /** UI 預設不顯示，僅開發模式可見（§6.5） */

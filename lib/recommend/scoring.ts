@@ -216,9 +216,8 @@ function scoreFreshness(
  * 用指數衰減而非線性：40 分鐘和 30 分鐘的差別，遠小於 70 分鐘和 60 分鐘的差別——
  * 後者已經進入「小孩在車上就先睡著或先崩潰」的區間。
  */
-function scoreDrive(place: Place): number {
+function scoreDrive(minutes: number): number {
   const { freeMinutes, scoreAtFreeBoundary, decayMinutes } = SCORING.drive;
-  const minutes = place.driveMinutes;
 
   if (minutes <= freeMinutes) {
     return clamp01(1 - (minutes / freeMinutes) * (1 - scoreAtFreeBoundary));
@@ -272,6 +271,8 @@ export function breakdownForChild(
   visits: Visit[],
   context: RecommendContext,
   timeline: TripTimeline,
+  /** 這次採用的車程。由 index.ts 算好傳入，避免每個因子各自重算。 */
+  driveMinutes: number,
 ): ScoreBreakdown {
   const excludeRecentDays =
     context.excludeRecentDays ?? DEFAULT_EXCLUDE_RECENT_DAYS;
@@ -281,7 +282,7 @@ export function breakdownForChild(
     age: scoreAge(place, child, context.timestamp),
     weather: scoreWeather(place, timeline, context.weather),
     freshness: scoreFreshness(place, visits, context.timestamp, excludeRecentDays),
-    drive: scoreDrive(place),
+    drive: scoreDrive(driveMinutes),
     history: scoreHistory(place, visits),
   };
 }

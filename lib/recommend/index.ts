@@ -16,7 +16,7 @@
 import type { Place, Visit } from "@/lib/db/schema";
 import { applyStage1 } from "./filters";
 import { breakdownForChild, totalScore } from "./scoring";
-import { buildTimeline } from "./timeline";
+import { buildTimeline, effectiveDriveMinutes } from "./timeline";
 import type { FilterResult, RecommendContext, ScoredPlace } from "./types";
 
 export function recommend(
@@ -51,10 +51,23 @@ function scorePlace(
   context: RecommendContext,
 ): ScoredPlace {
   const { place, warnings } = result;
-  const timeline = buildTimeline(place, context.timestamp, context.availableWindow);
+  const { minutes: driveMinutes, source } = effectiveDriveMinutes(place, context);
+  const timeline = buildTimeline(
+    place,
+    context.timestamp,
+    context.availableWindow,
+    driveMinutes,
+  );
 
   const perChild = context.children.map((child) => {
-    const breakdown = breakdownForChild(place, child, visits, context, timeline);
+    const breakdown = breakdownForChild(
+      place,
+      child,
+      visits,
+      context,
+      timeline,
+      driveMinutes,
+    );
     return { childId: child.id, breakdown, score: totalScore(breakdown) };
   });
 
@@ -64,6 +77,8 @@ function scorePlace(
 
   return {
     place,
+    driveMinutes,
+    driveMinutesSource: source,
     score: weakest.score,
     scoreBreakdown: weakest.breakdown,
     perChildScores: perChild.map(({ childId, score }) => ({ childId, score })),

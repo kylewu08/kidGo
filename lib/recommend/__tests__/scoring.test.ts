@@ -282,26 +282,24 @@ describe("新鮮度（10%）", () => {
 
 describe("車程成本（10%）", () => {
   it("30 分鐘以內的車程差異不大", () => {
-    const near = scoreDrive(makePlace({ driveMinutes: 5 }));
-    const boundary = scoreDrive(makePlace({ driveMinutes: 30 }));
+    const near = scoreDrive(5);
+    const boundary = scoreDrive(30);
     expect(near - boundary).toBeLessThan(0.15);
   });
 
   it("超過 30 分鐘後分數急降", () => {
-    const at30 = scoreDrive(makePlace({ driveMinutes: 30 }));
-    const at50 = scoreDrive(makePlace({ driveMinutes: 50 }));
-    const at70 = scoreDrive(makePlace({ driveMinutes: 70 }));
+    const at30 = scoreDrive(30);
+    const at50 = scoreDrive(50);
+    const at70 = scoreDrive(70);
     // 30→50 的落差要明顯大於 10→30 的落差
     expect(at30 - at50).toBeGreaterThan(
-      scoreDrive(makePlace({ driveMinutes: 10 })) - at30,
+      scoreDrive(10) - at30,
     );
     expect(at70).toBeLessThan(0.2);
   });
 
   it("車程越長分數單調遞減", () => {
-    const scores = [0, 10, 20, 30, 40, 60, 90].map((m) =>
-      scoreDrive(makePlace({ driveMinutes: m })),
-    );
+    const scores = [0, 10, 20, 30, 40, 60, 90].map((m) => scoreDrive(m));
     for (let i = 1; i < scores.length; i++) {
       expect(scores[i]).toBeLessThan(scores[i - 1]);
     }

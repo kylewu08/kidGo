@@ -12,7 +12,12 @@
 import type { Child, Place } from "@/lib/db/schema";
 import { ageInMonths } from "@/lib/schedule/napStage";
 import { THRESHOLDS } from "./thresholds";
-import { buildTimeline, forecastPeak, remainingMinutes } from "./timeline";
+import {
+  buildTimeline,
+  effectiveDriveMinutes,
+  forecastPeak,
+  remainingMinutes,
+} from "./timeline";
 import type { FilterResult, RecommendContext, RejectionReason } from "./types";
 
 /** 一個地點被剔除時，回傳理由；通過則回傳 null。 */
@@ -23,16 +28,19 @@ function rejectionFor(
 ): RejectionReason | null {
   const { timestamp, children, maxDriveMinutes, availableWindow } = context;
 
+  // 有即時路況就用即時的，否則退回基準值（ADR-0005）。
+  // 這一步放在最前面，因為底下每一條時間相關的判斷都要用到它。
+  const { minutes: driveMinutes } = effectiveDriveMinutes(place, context);
+
   // 1. 車程超過上限
-  if (place.driveMinutes > maxDriveMinutes) {
+  if (driveMinutes > maxDriveMinutes) {
     return "drive_too_long";
   }
 
   // 2. 可用時間不足以來回加上像樣的停留
   //    minimumStayRatio 的意思是「至少待得到六成的典型時長才值得去」。
   const requiredMinutes =
-    place.driveMinutes * 2 +
-    place.typicalDurationMin * THRESHOLDS.minimumStayRatio;
+    driveMinutes * 2 + place.typicalDurationMin * THRESHOLDS.minimumStayRatio;
   if (remainingMinutes(timestamp, availableWindow) < requiredMinutes) {
     return "not_enough_time";
   }
@@ -40,7 +48,7 @@ function rejectionFor(
   // 3 & 4. 天氣。只針對 indoor === "outdoor"，這是設計架構書 §6.2 的字面規定——
   //        covered_outdoor 與 mixed 有退路，不在硬性剔除的範圍。
   if (place.indoor === "outdoor") {
-    const timeline = buildTimeline(place, timestamp, availableWindow);
+    const timeline = buildTimeline(place, timestamp, availableWindow, driveMinutes);
     const peak = forecastPeak(context.weather, timeline.departAt, timeline.homeAt);
 
     if (peak === null) {
@@ -75,8 +83,21 @@ function rejectionFor(
 }
 
 /** 不影響通過與否，但要提醒使用者的事項（設計架構書 §6.2 最後一條） */
-function collectWarnings(place: Place, children: Child[]): string[] {
+function collectWarnings(
+  place: Place,
+  children: Child[],
+  context: Pick<RecommendContext, "liveDriveMinutes">,
+): string[] {
   const warnings: string[] = [];
+
+  // 路況比平常明顯差時說出來（ADR-0005）。
+  // 這是接 Routes API 最直接的價值：連假時使用者看到「路況比平常慢 25 分」，
+  // 而不是照著平日車程出門然後塞在國道上。
+  const { minutes, source } = effectiveDriveMinutes(place, context);
+  const delay = minutes - place.driveMinutes;
+  if (source === "live" && delay >= THRESHOLDS.liveDriveWarningMinutes) {
+    warnings.push(`路況比平常慢約 ${delay} 分，車程 ${minutes} 分`);
+  }
 
   // 需預約且是當日決策 → 標記警示，不剔除。
   // 「今天去哪」的使用情境天生就是當日決策，所以這個警示總是會出現。
@@ -108,7 +129,7 @@ export function applyStage1(
   context: RecommendContext,
 ): FilterResult[] {
   return places.map((place) => {
-    const warnings = collectWarnings(place, context.children);
+    const warnings = collectWarnings(place, context.children, context);
     const rejectedBy = rejectionFor(place, context, warnings);
     return rejectedBy === null
       ? { place, passed: true, warnings }

@@ -15,6 +15,11 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 > 本檔案是給 AI 協作工具與新加入開發者的第一份文件。
 > 唯一的需求源頭是 [`docs/設計架構書.md`](docs/設計架構書.md) v0.2，本檔案只是它的可執行摘要。
 > **兩者衝突時，以設計架構書為準，並且要開一個 commit 修正本檔案。**
+>
+> **例外**：設計架構書的個別決定可以被 ADR 明文推翻，此時以 ADR 為準。
+> 目前已被推翻的部分見 [`docs/adr/README.md`](docs/adr/README.md) —— §9（車程改接即時路況）、
+> §5.4（HomeBase 增加縣市欄位）、§2 與 §6.2 的午睡矛盾。
+> 設計架構書本身尚未同步更新。
 
 ## 這是什麼
 
@@ -51,8 +56,13 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 - `Recommendation.reasons` 由 `lib/recommend/reasons.ts` 的規則模板產生。
   呈現層的 LLM 可以潤飾句子，**不得改變語意，不得新增規則未產生的理由**。
 - AI 建檔的產出永遠是**草稿**，必須經人工逐欄位確認才入庫。
-  `driveMinutes` / `personalRating` / `sweetSpotAge` 三個欄位 **AI 不得填寫**。
+  `driveMinutes` / `personalRating` / `sweetSpotAge` 三個欄位 **LLM 不得填寫**。
 - AI 對不確定的欄位必須留 `null`，**不得猜測**。寧可空著讓使用者填。
+
+> **量測 vs 猜測的區別**（ADR-0005）：上面那條禁令針對的是 LLM。
+> Google Routes API 可以填 `driveMinutes`，因為它拿到 HomeBase 的實際座標，
+> 回傳的是量測值不是猜測。`fieldSources` 用 `routes_api` 與 `ai_suggested` 區分，
+> UI 不該把這兩種來源標成一樣的可信度。
 
 理由見 [ADR-0002](docs/adr/0002-no-llm-in-decision-layer.md)。
 
@@ -74,6 +84,8 @@ export function recommend(
 - **不要把門檻值或權重寫死在 `filters.ts` / `scoring.ts` 裡。**
 - 多小孩情境：對每個小孩獨立算分，取**最低分**而非平均（刻意的保守設計）
 - 歷史成效權重固定 5%，**紀錄筆數少於 20 筆前不得調高**
+- 即時路況透過 `context.liveDriveMinutes` 傳入，**缺席即退回 `Place.driveMinutes`**。
+  這不是錯誤處理，是 P6 的保證：離線時功能不中斷，只是精度下降（ADR-0005）。
 
 ## v1 明確不做
 

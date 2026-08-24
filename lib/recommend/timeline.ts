@@ -8,7 +8,7 @@
 
 import type { Place, TimeWindow } from "@/lib/db/schema";
 import { TIME_SLOT_RANGES } from "./thresholds";
-import type { TripTimeline, WeatherForecast } from "./types";
+import type { RecommendContext, TripTimeline, WeatherForecast } from "./types";
 import type { TimeSlot } from "@/lib/db/schema";
 
 const MS_PER_MINUTE = 60_000;
@@ -75,6 +75,23 @@ export function timeSlotOf(at: Date): TimeSlot | null {
 }
 
 /**
+ * 這次評分該用哪個車程（ADR-0005）。
+ *
+ * 有即時路況就用即時的，沒有就退回建檔時填的基準值。
+ * **缺席是正常狀況不是錯誤**——離線、API 失敗、超出免費額度都會走到這裡，
+ * 而 P6 要求那些情況下功能仍然可用。
+ */
+export function effectiveDriveMinutes(
+  place: Place,
+  context: Pick<RecommendContext, "liveDriveMinutes">,
+): { minutes: number; source: "live" | "baseline" } {
+  const live = context.liveDriveMinutes?.get(place.id);
+  return live === undefined
+    ? { minutes: place.driveMinutes, source: "baseline" }
+    : { minutes: live, source: "live" };
+}
+
+/**
  * 推算一趟出遊的時間軸。
  *
  * 出發時間取「現在」與「可用區間起點」的較晚者：使用者可能在 08:00 就打開 App
@@ -84,14 +101,16 @@ export function buildTimeline(
   place: Place,
   now: Date,
   availableWindow: TimeWindow,
+  /** 覆寫車程。不給則用建檔時的基準值。見 effectiveDriveMinutes。 */
+  driveMinutes: number = place.driveMinutes,
 ): TripTimeline {
   const windowStart = atClock(now, availableWindow.start);
   const departAt = new Date(Math.max(now.getTime(), windowStart.getTime()));
-  const arriveAt = new Date(departAt.getTime() + place.driveMinutes * MS_PER_MINUTE);
+  const arriveAt = new Date(departAt.getTime() + driveMinutes * MS_PER_MINUTE);
   const leaveAt = new Date(
     arriveAt.getTime() + place.typicalDurationMin * MS_PER_MINUTE,
   );
-  const homeAt = new Date(leaveAt.getTime() + place.driveMinutes * MS_PER_MINUTE);
+  const homeAt = new Date(leaveAt.getTime() + driveMinutes * MS_PER_MINUTE);
   return { departAt, arriveAt, leaveAt, homeAt };
 }
 
