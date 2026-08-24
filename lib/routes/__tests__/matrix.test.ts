@@ -1,17 +1,25 @@
 /**
  * Route Matrix 回應解析的規格（ADR-0005）
  *
- * ⚠️ **與 lib/weather 的測試不同，這裡的資料是照官方文件規格手寫的，
- * 不是真實 API 回應。** 撰寫當下還沒有 Google Cloud 金鑰。
+ * 主要路徑吃的是 2026-08-24 從 Google Routes API 真實抓回來的回應
+ * （route-matrix-sample.json，起點板橋區，四個台北近郊地點）。
  *
- * 這是一個已知的弱點：手寫的 payload 測的是我對規格的理解，不是對方實際的行為。
- * **拿到金鑰後應該實際打一次，把真實回應存成 fixture 取代這裡的常數**，
- * 就像 lib/weather/__tests__/banqiao-sample.json 那樣。
+ * 錯誤與邊界情境仍是手寫的：那些狀況（ROUTE_NOT_FOUND、duration 格式錯誤、
+ * index 超出範圍）沒辦法穩定地從真實 API 誘發出來。分界清楚寫在各個 describe。
  */
 
 import { describe, expect, it } from "vitest";
 
 import { parseRouteMatrix, type RouteDestination } from "../matrix";
+import sample from "./route-matrix-sample.json";
+
+/** 對應擷取 fixture 時送出的目的地順序 */
+const realDestinations: RouteDestination[] = [
+  { id: "daan-park", lat: 25.0299, lng: 121.5361 },
+  { id: "taipei-kids", lat: 25.0955, lng: 121.5148 },
+  { id: "yangmingshan", lat: 25.1553, lng: 121.5453 },
+  { id: "bitan", lat: 24.9573, lng: 121.5378 },
+];
 
 const destinations: RouteDestination[] = [
   { id: "park", lat: 25.0299, lng: 121.5361 },
@@ -19,36 +27,32 @@ const destinations: RouteDestination[] = [
   { id: "farm", lat: 24.9, lng: 121.2 },
 ];
 
-describe("解析 Route Matrix 回應", () => {
+describe("解析真實回應", () => {
   it("把每個元素依 destinationIndex 對回 placeId", () => {
-    const result = parseRouteMatrix(
-      [
-        { originIndex: 0, destinationIndex: 0, duration: "900s", condition: "ROUTE_EXISTS" },
-        { originIndex: 0, destinationIndex: 1, duration: "1500s", condition: "ROUTE_EXISTS" },
-      ],
-      destinations,
-    );
+    const result = parseRouteMatrix(sample, realDestinations);
 
-    expect(result.get("park")).toBe(15);
-    expect(result.get("museum")).toBe(25);
+    // 真實值：1076s / 978s / 2584s / 1383s
+    expect(result.get("daan-park")).toBe(18);
+    expect(result.get("taipei-kids")).toBe(16);
+    expect(result.get("yangmingshan")).toBe(43);
+    expect(result.get("bitan")).toBe(23);
   });
 
   it("回應順序與請求順序不同時仍然對得起來", () => {
-    // Route Matrix 邊算邊回傳，順序不保證。靠 index 對應而不是位置，
-    // 這條測試就是把「不可以依賴順序」這件事釘住。
-    const result = parseRouteMatrix(
-      [
-        { destinationIndex: 2, duration: "3600s", condition: "ROUTE_EXISTS" },
-        { destinationIndex: 0, duration: "900s", condition: "ROUTE_EXISTS" },
-        { destinationIndex: 1, duration: "1500s", condition: "ROUTE_EXISTS" },
-      ],
-      destinations,
-    );
+    // 這不是假設性的防禦。擷取這份 fixture 時，送出的目的地順序是 0,1,2,3，
+    // Google 回來的順序是 1,3,0,2——Route Matrix 邊算邊回傳，順序不保證。
+    expect(sample.map((e) => e.destinationIndex)).toEqual([1, 3, 0, 2]);
 
-    expect(result.get("park")).toBe(15);
-    expect(result.get("museum")).toBe(25);
-    expect(result.get("farm")).toBe(60);
+    const result = parseRouteMatrix(sample, realDestinations);
+    expect(result.get("daan-park")).toBe(18); // destinationIndex 0，卻排在回應第三個
   });
+
+  it("每一筆都算得出路線，四個目的地全都在結果裡", () => {
+    expect(parseRouteMatrix(sample, realDestinations).size).toBe(4);
+  });
+});
+
+describe("解析（手寫情境）", () => {
 
   it("秒數換算成分鐘並四捨五入", () => {
     const result = parseRouteMatrix(
