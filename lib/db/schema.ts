@@ -68,7 +68,15 @@ export type FieldSource =
   | "manual"
   | "ai_suggested"
   | "ai_confirmed"
-  | "visit_corrected";
+  | "visit_corrected"
+  /**
+   * 由 Google Routes API 量測而得（ADR-0005）。
+   *
+   * 刻意與 ai_suggested 分開：兩者的差別不是「自動 vs 手動」，是**量測 vs 猜測**。
+   * LLM 填 driveMinutes 是在猜一個看起來合理的數字，Routes API 拿到 HomeBase
+   * 的實際座標回傳的是量測值。UI 上不該把這兩種來源標成一樣的可信度。
+   */
+  | "routes_api";
 
 /** 1–5 的評級。用 TypeScript 縮小範圍，SQLite 端仍是 integer。 */
 export type Rating = 1 | 2 | 3 | 4 | 5;
@@ -288,11 +296,27 @@ export const visits = sqliteTable("visits", {
 // HomeBase（設計架構書 §5.4）
 // ---------------------------------------------------------------------------
 
-/** 單列表。id 固定為 "default"，由 CHECK 約束保證不會有第二列。 */
+/**
+ * 單列表。id 固定為 "default"。
+ *
+ * **這是固定的「家」，不是使用者當下的位置。** Place.driveMinutes 是以這個點
+ * 為起點量出來的，Visit 紀錄也是以它為錨點累積的。它一旦浮動，
+ * 全部地點的車程基準會同時失效。
+ */
 export const homeBase = sqliteTable("home_base", {
   id: text("id").primaryKey().default("default"),
   lat: real("lat").notNull(),
   lng: real("lng").notNull(),
+  /**
+   * 縣市名，如「新北市」（ADR-0006）。
+   *
+   * 設計架構書 §5.4 原本沒有這個欄位，實際串接 CWA 後發現非有不可：
+   * 鄉鎮預報被拆成 22 個縣市各自的資料集，而且鄉鎮名稱不唯一
+   * （東區橫跨新竹市／嘉義市／臺中市／臺南市）。
+   *
+   * 值必須是 lib/weather/townships.ts 的 CountyName 之一。
+   */
+  cwaCountyName: text("cwa_county_name").notNull(),
   /** 對應中央氣象署鄉鎮預報地區名，如「板橋區」。用於 F-D0047 系列 API。 */
   cwaLocationName: text("cwa_location_name").notNull(),
   maxDriveMinutes: integer("max_drive_minutes").notNull(),

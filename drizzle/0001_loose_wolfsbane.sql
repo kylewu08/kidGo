@@ -1,0 +1,1 @@
+ALTER TABLE `home_base` ADD `cwa_county_name` text NOT NULL;

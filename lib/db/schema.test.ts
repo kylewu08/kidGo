@@ -218,3 +218,37 @@ describe("Visit", () => {
     expect(rows.filter((r) => r.meltdown)).toHaveLength(2);
   });
 });
+
+describe("HomeBase", () => {
+  it("同時存縣市與鄉鎮——鄉鎮名稱本身不唯一", async () => {
+    // ADR-0006：CWA 把鄉鎮預報拆成 22 個縣市各自的資料集，
+    // 而且東區同時存在於新竹市／嘉義市／臺中市／臺南市。
+    await db.insert(schema.homeBase).values({
+      id: "default",
+      lat: 25.0115,
+      lng: 121.4509,
+      cwaCountyName: "新北市",
+      cwaLocationName: "板橋區",
+      maxDriveMinutes: 45,
+    });
+    const [row] = await db.select().from(schema.homeBase);
+
+    expect(row.cwaCountyName).toBe("新北市");
+    expect(row.cwaLocationName).toBe("板橋區");
+  });
+
+  it("id 預設為 default，這是一張單列表", async () => {
+    await db.insert(schema.homeBase).values({
+      lat: 25.0115,
+      lng: 121.4509,
+      cwaCountyName: "新北市",
+      cwaLocationName: "板橋區",
+      maxDriveMinutes: 45,
+    });
+    const rows = await db.select().from(schema.homeBase);
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0].id).toBe("default");
+  });
+});
+
