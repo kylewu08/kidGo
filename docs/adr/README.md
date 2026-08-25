@@ -7,6 +7,10 @@
 ADR 一旦寫下就不修改內容。決定變了就寫新的一份，把舊的狀態改為
 `已被 ADR-XXXX 取代`——想法的演變過程本身就是資訊。
 
+> **⚠️ 0001–0007 引用的是設計架構書 v0.2 的節號**，該版本已被 v1.0 取代
+> （[ADR-0008](0008-adopt-spec-v1.md)）。對不上的節號請到
+> [`../archive/`](../archive/) 查閱 v0.2 原文。
+
 | # | 決定 | 狀態 | 日期 |
 |---|------|------|------|
 | [0001](0001-sqlite-over-cloud-db.md) | 資料庫用本地 SQLite，不用 Supabase / Postgres | 已採納 | 2026-08-23 |
@@ -15,4 +19,7 @@ ADR 一旦寫下就不修改內容。決定變了就寫新的一份，把舊的�
 | [0004](0004-nap-conflict-scores-not-filters.md) | 午睡衝突是扣分（15 分）不是剔除，解決 §2 與 §6.2 的矛盾 | 已採納 | 2026-08-24 |
 | [0005](0005-live-traffic-over-manual-drive-times.md) | 接 Google Routes API 取即時路況，**推翻設計架構書 §9** | 已採納 | 2026-08-24 |
 | [0006](0006-homebase-stores-county.md) | HomeBase 增加 cwaCountyName 欄位 | 已採納 | 2026-08-24 |
-| [0007](0007-unused-place-fields-in-scoring.md) | energyBurn / personalRating / crowdLevel 等核心欄位未進入評分 | **提議中** | 2026-08-24 |
+| [0007](0007-unused-place-fields-in-scoring.md) | energyBurn / personalRating / crowdLevel 等核心欄位未進入評分 | 已被 ADR-0008 結案 | 2026-08-24 |
+| [0008](0008-adopt-spec-v1.md) | **改採設計架構書 v1.0，以演進而非重寫遷移**（含 v0.2 → v1.0 對照表） | 已採納 | 2026-08-25 |
+| [0009](0009-import-radius-not-counties.md) | 匯入全臺資料，只對住家直線半徑內的地點算基準車程 | 已採納 | 2026-08-25 |
+| [0010](0010-deploy-on-synology-nas.md) | 部署在自有 Synology NAS，SQLite 保留 | 已採納 | 2026-08-25 |
