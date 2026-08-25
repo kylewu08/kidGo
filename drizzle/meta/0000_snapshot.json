@@ -1,9 +1,87 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "303a4644-7311-4eab-8a5c-b5fb8e23d730",
+  "id": "4fb7cc26-219c-4ea8-ab8f-f4d4a833adc9",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "tables": {
+    "calendar_days": {
+      "name": "calendar_days",
+      "columns": {
+        "date": {
+          "name": "date",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "day_type": {
+          "name": "day_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "note": {
+          "name": "note",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "category_preferences": {
+      "name": "category_preferences",
+      "columns": {
+        "category": {
+          "name": "category",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "learned_weight": {
+          "name": "learned_weight",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "manual_weight": {
+          "name": "manual_weight",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "sample_count": {
+          "name": "sample_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "last_updated_at": {
+          "name": "last_updated_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
     "children": {
       "name": "children",
       "columns": {
@@ -78,6 +156,94 @@
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
+    "context_overrides": {
+      "name": "context_overrides",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "raw_input": {
+          "name": "raw_input",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "overrides": {
+          "name": "overrides",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'{}'"
+        },
+        "explanation": {
+          "name": "explanation",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "''"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "family_preferences": {
+      "name": "family_preferences",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'default'"
+        },
+        "outdoor_tendency": {
+          "name": "outdoor_tendency",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "max_parent_effort": {
+          "name": "max_parent_effort",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "requires_meal": {
+          "name": "requires_meal",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
     "home_base": {
       "name": "home_base",
       "columns": {
@@ -99,6 +265,13 @@
         "lng": {
           "name": "lng",
           "type": "real",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "cwa_county_name": {
+          "name": "cwa_county_name",
+          "type": "text",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
@@ -134,13 +307,40 @@
           "notNull": true,
           "autoincrement": false
         },
-        "owner_id": {
-          "name": "owner_id",
+        "source_dataset": {
+          "name": "source_dataset",
           "type": "text",
           "primaryKey": false,
           "notNull": true,
-          "autoincrement": false,
-          "default": "'local'"
+          "autoincrement": false
+        },
+        "source_id": {
+          "name": "source_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "imported_at": {
+          "name": "imported_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "source_updated_at": {
+          "name": "source_updated_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "source_removed_at": {
+          "name": "source_removed_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
         },
         "name": {
           "name": "name",
@@ -156,6 +356,14 @@
           "notNull": true,
           "autoincrement": false
         },
+        "address": {
+          "name": "address",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "''"
+        },
         "lat": {
           "name": "lat",
           "type": "real",
@@ -170,26 +378,21 @@
           "notNull": true,
           "autoincrement": false
         },
-        "address": {
-          "name": "address",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "drive_minutes": {
-          "name": "drive_minutes",
+        "parking_search_minutes": {
+          "name": "parking_search_minutes",
           "type": "integer",
           "primaryKey": false,
           "notNull": true,
-          "autoincrement": false
+          "autoincrement": false,
+          "default": 5
         },
-        "parking": {
-          "name": "parking",
-          "type": "text",
+        "uses_freeway": {
+          "name": "uses_freeway",
+          "type": "integer",
           "primaryKey": false,
           "notNull": true,
-          "autoincrement": false
+          "autoincrement": false,
+          "default": false
         },
         "energy_burn": {
           "name": "energy_burn",
@@ -198,8 +401,8 @@
           "notNull": true,
           "autoincrement": false
         },
-        "typical_duration_min": {
-          "name": "typical_duration_min",
+        "typical_duration_minutes": {
+          "name": "typical_duration_minutes",
           "type": "integer",
           "primaryKey": false,
           "notNull": true,
@@ -213,23 +416,51 @@
           "autoincrement": false,
           "default": "'[]'"
         },
-        "age_range": {
-          "name": "age_range",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "sweet_spot_age": {
-          "name": "sweet_spot_age",
+        "facility_age_bands": {
+          "name": "facility_age_bands",
           "type": "text",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
         },
-        "indoor": {
-          "name": "indoor",
+        "suitable_age_months": {
+          "name": "suitable_age_months",
           "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "runnable_space": {
+          "name": "runnable_space",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "safety_enclosure": {
+          "name": "safety_enclosure",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "parent_effort": {
+          "name": "parent_effort",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "indoor_type": {
+          "name": "indoor_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "has_air_conditioning": {
+          "name": "has_air_conditioning",
+          "type": "integer",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
@@ -248,73 +479,32 @@
           "notNull": true,
           "autoincrement": false
         },
-        "has_changing_table": {
-          "name": "has_changing_table",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "has_nursing_space": {
-          "name": "has_nursing_space",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "has_food_on_site": {
-          "name": "has_food_on_site",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "has_water_play": {
-          "name": "has_water_play",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "needs_reservation": {
-          "name": "needs_reservation",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "quiet_hours": {
-          "name": "quiet_hours",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "crowd_level": {
-          "name": "crowd_level",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "cost_per_family": {
-          "name": "cost_per_family",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "indoor_backup_place_ids": {
-          "name": "indoor_backup_place_ids",
+        "field_sources": {
+          "name": "field_sources",
           "type": "text",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
-          "default": "'[]'"
+          "default": "'{}'"
         },
-        "personal_rating": {
-          "name": "personal_rating",
+        "data_suspect": {
+          "name": "data_suspect",
           "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": false
+        },
+        "data_suspect_reason": {
+          "name": "data_suspect_reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "last_verified_at": {
+          "name": "last_verified_at",
+          "type": "text",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
@@ -325,25 +515,54 @@
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "push_subscriptions": {
+      "name": "push_subscriptions",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
         },
-        "tags": {
-          "name": "tags",
+        "endpoint": {
+          "name": "endpoint",
           "type": "text",
           "primaryKey": false,
           "notNull": true,
-          "autoincrement": false,
-          "default": "'[]'"
+          "autoincrement": false
         },
-        "field_sources": {
-          "name": "field_sources",
+        "p256dh": {
+          "name": "p256dh",
           "type": "text",
           "primaryKey": false,
           "notNull": true,
-          "autoincrement": false,
-          "default": "'{}'"
+          "autoincrement": false
         },
-        "last_verified_at": {
-          "name": "last_verified_at",
+        "auth": {
+          "name": "auth",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "last_used_at": {
+          "name": "last_used_at",
           "type": "text",
           "primaryKey": false,
           "notNull": false,
@@ -352,6 +571,246 @@
       },
       "indexes": {},
       "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "route_cache": {
+      "name": "route_cache",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "place_id": {
+          "name": "place_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "direction": {
+          "name": "direction",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "departure_at": {
+          "name": "departure_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "duration_minutes": {
+          "name": "duration_minutes",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "fetched_at": {
+          "name": "fetched_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "route_cache_place_id_places_id_fk": {
+          "name": "route_cache_place_id_places_id_fk",
+          "tableFrom": "route_cache",
+          "tableTo": "places",
+          "columnsFrom": [
+            "place_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "suggestions": {
+      "name": "suggestions",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "sent_at": {
+          "name": "sent_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "kind": {
+          "name": "kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "primary_place_id": {
+          "name": "primary_place_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "backup_place_id": {
+          "name": "backup_place_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "explore_place_id": {
+          "name": "explore_place_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "suggested_departure": {
+          "name": "suggested_departure",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "suggested_return": {
+          "name": "suggested_return",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "no_outing_reason": {
+          "name": "no_outing_reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "context_override_id": {
+          "name": "context_override_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "response": {
+          "name": "response",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "responded_at": {
+          "name": "responded_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "went_elsewhere_place_id": {
+          "name": "went_elsewhere_place_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "response_note": {
+          "name": "response_note",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "suggestions_primary_place_id_places_id_fk": {
+          "name": "suggestions_primary_place_id_places_id_fk",
+          "tableFrom": "suggestions",
+          "tableTo": "places",
+          "columnsFrom": [
+            "primary_place_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "suggestions_backup_place_id_places_id_fk": {
+          "name": "suggestions_backup_place_id_places_id_fk",
+          "tableFrom": "suggestions",
+          "tableTo": "places",
+          "columnsFrom": [
+            "backup_place_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "suggestions_explore_place_id_places_id_fk": {
+          "name": "suggestions_explore_place_id_places_id_fk",
+          "tableFrom": "suggestions",
+          "tableTo": "places",
+          "columnsFrom": [
+            "explore_place_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "suggestions_context_override_id_context_overrides_id_fk": {
+          "name": "suggestions_context_override_id_context_overrides_id_fk",
+          "tableFrom": "suggestions",
+          "tableTo": "context_overrides",
+          "columnsFrom": [
+            "context_override_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "suggestions_went_elsewhere_place_id_places_id_fk": {
+          "name": "suggestions_went_elsewhere_place_id_places_id_fk",
+          "tableFrom": "suggestions",
+          "tableTo": "places",
+          "columnsFrom": [
+            "went_elsewhere_place_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "checkConstraints": {}
@@ -373,13 +832,12 @@
           "notNull": true,
           "autoincrement": false
         },
-        "child_ids": {
-          "name": "child_ids",
+        "suggestion_id": {
+          "name": "suggestion_id",
           "type": "text",
           "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'[]'"
+          "notNull": false,
+          "autoincrement": false
         },
         "date": {
           "name": "date",
@@ -388,19 +846,13 @@
           "notNull": true,
           "autoincrement": false
         },
-        "arrived_at": {
-          "name": "arrived_at",
+        "child_ids": {
+          "name": "child_ids",
           "type": "text",
           "primaryKey": false,
           "notNull": true,
-          "autoincrement": false
-        },
-        "left_at": {
-          "name": "left_at",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
+          "autoincrement": false,
+          "default": "'[]'"
         },
         "child_ages_months": {
           "name": "child_ages_months",
@@ -410,8 +862,8 @@
           "autoincrement": false,
           "default": "'[]'"
         },
-        "weather_snapshot": {
-          "name": "weather_snapshot",
+        "duration_feeling": {
+          "name": "duration_feeling",
           "type": "text",
           "primaryKey": false,
           "notNull": true,
@@ -419,37 +871,44 @@
         },
         "outcome": {
           "name": "outcome",
-          "type": "integer",
+          "type": "text",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
         },
-        "actual_energy_burn": {
-          "name": "actual_energy_burn",
-          "type": "integer",
+        "arrived_at": {
+          "name": "arrived_at",
+          "type": "text",
           "primaryKey": false,
-          "notNull": true,
+          "notNull": false,
           "autoincrement": false
         },
-        "nap_happened": {
-          "name": "nap_happened",
-          "type": "integer",
+        "left_at": {
+          "name": "left_at",
+          "type": "text",
           "primaryKey": false,
-          "notNull": true,
+          "notNull": false,
           "autoincrement": false
         },
-        "meltdown": {
-          "name": "meltdown",
+        "actual_drive_minutes": {
+          "name": "actual_drive_minutes",
           "type": "integer",
           "primaryKey": false,
-          "notNull": true,
+          "notNull": false,
           "autoincrement": false
         },
-        "would_return": {
-          "name": "would_return",
-          "type": "integer",
+        "weather_snapshot": {
+          "name": "weather_snapshot",
+          "type": "text",
           "primaryKey": false,
-          "notNull": true,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "context_override_id": {
+          "name": "context_override_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
           "autoincrement": false
         },
         "notes": {
@@ -458,14 +917,6 @@
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
-        },
-        "photos": {
-          "name": "photos",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'[]'"
         }
       },
       "indexes": {},
@@ -476,6 +927,32 @@
           "tableTo": "places",
           "columnsFrom": [
             "place_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "visits_suggestion_id_suggestions_id_fk": {
+          "name": "visits_suggestion_id_suggestions_id_fk",
+          "tableFrom": "visits",
+          "tableTo": "suggestions",
+          "columnsFrom": [
+            "suggestion_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "visits_context_override_id_context_overrides_id_fk": {
+          "name": "visits_context_override_id_context_overrides_id_fk",
+          "tableFrom": "visits",
+          "tableTo": "context_overrides",
+          "columnsFrom": [
+            "context_override_id"
           ],
           "columnsTo": [
             "id"

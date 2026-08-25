@@ -1,49 +1,47 @@
 /**
- * KidGo 資料模型 — 對應設計架構書 §5
+ * KidGo 資料模型 — 依設計架構書 v1.0 §6 語彙與 §7 流程
  *
- * 三張核心表 Child / Place / Visit 加上單列的 HomeBase。
- * 設計架構書 §3.2 講得很直接：這三張表的持久化，比推薦演算法本身更接近產品的本質。
- * 聊天介面給不了持久狀態、驗證過的在地事實、個人歷史——那才是護城河。
+ * 取捨理由見 docs/資料模型草案.md 與 docs/adr/0014-data-model-decisions.md。
  *
- * SQLite 沒有原生的 array 與 enum：
- * - 聯集型別用 text 欄位加 `$type<T>()`，型別由 TypeScript 保證
- * - 陣列與巢狀物件用 `{ mode: "json" }`
- * 這兩種做法在換到 Postgres 時分別對應 enum 與 jsonb，遷移成本可控（ADR-0001）。
+ * 三個貫穿全檔的原則：
+ *
+ * 1. **使用者負擔與系統負擔要分開。** §13.2.6「除兩項回饋外皆為選填」
+ *    講的是使用者要填的東西，不是系統本來就知道的東西。
+ *    每個欄位的註解標明是誰填的。
+ * 2. **不可能的狀態要無法表示。** 例如「有遊具但適齡層是空的」不該存在。
+ * 3. **每個欄位都要知道自己怎麼來的**（`fieldSources`），
+ *    因為匯入器重跑時要靠它判斷能不能覆蓋。
+ *
+ * SQLite 沒有原生 array / boolean / enum：聯集型別用 text + `$type<T>()`，
+ * 陣列與物件用 `{ mode: "json" }`，布林用 integer + `{ mode: "boolean" }`。
  */
 
 import { sql } from "drizzle-orm";
 import { integer, real, sqliteTable, text } from "drizzle-orm/sqlite-core";
 
 // ---------------------------------------------------------------------------
-// 聯集型別（設計架構書 §5.1、§5.2）
+// 聯集型別
 // ---------------------------------------------------------------------------
 
-/** 午睡階段。可由月齡推算，但允許手動覆寫——實際作息永遠比對照表準。 */
-export type NapStage =
-  | "two_naps" // 約 6-14m
-  | "one_nap" // 約 14-36m
-  | "transitioning" // 2→1 或 1→0 過渡期
-  | "no_nap"; // 約 3y+
-
-/** 行動能力。與 napStage 同為推薦邏輯的支點（見下方 children 表的註解）。 */
-export type Mobility =
-  | "carried" // 需揹/抱
-  | "stroller" // 主要靠推車
-  | "walks_short" // 能走但續航短
-  | "walks_full";
-
+/** 類別。決定匯入時套用哪一組先驗值（v1.0 §11.1）。 */
 export type Category =
-  | "park"
-  | "playground"
-  | "indoor_playground"
-  | "museum"
-  | "farm"
-  | "beach"
-  | "trail"
-  | "kids_cafe"
-  | "mall"
-  | "library"
-  | "other";
+  | "inclusive_playground" // 共融／特色遊戲場
+  | "park" // 一般公園
+  | "parenting_center" // 親子館／托育資源中心
+  | "indoor_playground" // 室內遊樂場
+  | "museum" // 博物館／美術館／科教館
+  | "library" // 圖書館
+  | "farm" // 農場／牧場
+  | "trail" // 步道
+  | "beach" // 海邊／沙灘
+  | "kids_restaurant" // 親子餐廳
+  | "mall_play_area"; // 百貨遊戲區
+
+/**
+ * 年齡層（v1.0 §6.2 設施適齡層）。
+ * 對應的月齡區間屬於領域參數，不存在資料庫裡——見 lib/domain/age-bands.ts。
+ */
+export type AgeBand = "infant" | "toddler" | "preschool" | "school_age";
 
 export type IndoorType = "indoor" | "outdoor" | "mixed" | "covered_outdoor";
 
@@ -53,36 +51,33 @@ export type TimeSlot =
   | "post_nap"
   | "late_afternoon";
 
-export type ParkingRating = "easy" | "moderate" | "hard" | "none";
+export type NapStage = "two_naps" | "one_nap" | "transitioning" | "no_nap";
+
+export type Mobility = "carried" | "stroller" | "walks_short" | "walks_full";
 
 /**
- * 每個欄位的資料來源（設計架構書 §5.2，v0.2 新增）
+ * 欄位來源（v1.0 §6.2）。
  *
- * AI 建議的欄位可信度低於親身驗證的欄位。UI 必須能區分「AI 猜的」與「我確認過的」，
- * 否則錯誤資料會混入而無法追查。
- *
- * v1 全部會是 "manual"（Phase 1 手動建檔 40–60 筆），但欄位從第一天就存在——
- * Phase 2 導入 AI 建檔時就不需要 migration（§12.6）。
+ * **匯入器只能覆蓋 `category_prior` 的欄位**，其餘代表人已經確認過。
+ * 這是 upsert 規則的依據，也是「時長自動修正」只動先驗值的依據（ADR-0014）。
  */
 export type FieldSource =
-  | "manual"
+  | "category_prior"
   | "ai_suggested"
-  | "ai_confirmed"
-  | "visit_corrected"
-  /**
-   * 由 Google Routes API 量測而得（ADR-0005）。
-   *
-   * 刻意與 ai_suggested 分開：兩者的差別不是「自動 vs 手動」，是**量測 vs 猜測**。
-   * LLM 填 driveMinutes 是在猜一個看起來合理的數字，Routes API 拿到 HomeBase
-   * 的實際座標回傳的是量測值。UI 上不該把這兩種來源標成一樣的可信度。
-   */
-  | "routes_api";
+  | "manual"
+  | "visit_corrected";
 
-/** 1–5 的評級。用 TypeScript 縮小範圍，SQLite 端仍是 integer。 */
+/** 開放資料來源（v1.0 §10.1） */
+export type SourceDataset =
+  | "playground_registry" // 兒童遊戲場／共融遊戲場清冊
+  | "parenting_center" // 親子館／托育資源中心
+  | "park_facility" // 公園設施
+  | "tourism_spot" // 觀光資訊資料庫－景點
+  | "library" // 圖書館／文化中心
+  | "manual"; // 使用者自行新增（非匯入）
+
 export type Rating = 1 | 2 | 3 | 4 | 5;
-
-/** 遮蔽程度 0–3。0 = 全無遮蔽，3 = 幾乎全遮。影響高溫時的 Stage 1 過濾。 */
-export type ShadeLevel = 0 | 1 | 2 | 3;
+export type Level0to3 = 0 | 1 | 2 | 3;
 
 export interface TimeWindow {
   /** "HH:MM" */
@@ -96,244 +91,405 @@ export interface AgeRangeMonths {
   maxMonths: number;
 }
 
-export interface CrowdLevel {
-  weekday: Rating;
-  weekend: Rating;
-}
-
 export interface WeatherSnapshot {
   condition: string;
-  tempC: number;
+  apparentTempC: number;
   /** 0–100 */
   rainProbability: number;
 }
 
 // ---------------------------------------------------------------------------
-// Child（設計架構書 §5.1）
+// Place（地點）
 // ---------------------------------------------------------------------------
 
+export const places = sqliteTable("places", {
+  id: text("id").primaryKey(),
+
+  // --- 來源追蹤：讓重複匯入能認出「這是同一個地點」---
+  sourceDataset: text("source_dataset").$type<SourceDataset>().notNull(),
+  /** 該資料集內的原始主鍵。與 sourceDataset 合成外部唯一鍵。 */
+  sourceId: text("source_id").notNull(),
+  importedAt: text("imported_at"),
+  sourceUpdatedAt: text("source_updated_at"),
+  /**
+   * 來源資料集不再包含這筆時標記，**但不刪除**——它可能已有造訪紀錄，
+   * 刪掉會讓紀錄變成孤兒（§6.4 紀錄永不刪除）。
+   */
+  sourceRemovedAt: text("source_removed_at"),
+
+  // --- 位置 ---
+  name: text("name").notNull(),
+  category: text("category").$type<Category>().notNull(),
+  address: text("address").notNull().default(""),
+  lat: real("lat").notNull(),
+  lng: real("lng").notNull(),
+  /** 找車位要花的時間，加在車程估算上（§6.2）。先驗值，可手動改。 */
+  parkingSearchMinutes: integer("parking_search_minutes").notNull().default(5),
+  /**
+   * 是否走國道。決定連假係數（§11.2）與能否跳過即時查詢（§10.3.2）。
+   * 匯入階段不呼叫 Google（ADR-0013），所以用直線距離門檻推導（ADR-0014）。
+   */
+  usesFreeway: integer("uses_freeway", { mode: "boolean" }).notNull().default(false),
+
+  // --- 核心判斷欄位（§6.2）---
+  /** 放電強度：消耗小孩體力的程度 */
+  energyBurn: integer("energy_burn").$type<Rating>().notNull(),
+  /** 實際能撐多久，不是官方建議時間 */
+  typicalDurationMinutes: integer("typical_duration_minutes").notNull(),
+  bestTimeSlots: text("best_time_slots", { mode: "json" })
+    .$type<TimeSlot[]>()
+    .notNull()
+    .default(sql`'[]'`),
+
+  /**
+   * 現場遊具實際適用的年齡層。**null 代表無遊具設施**（美術館、步道、沙灘）。
+   *
+   * 用「集合或 null」而不是「布林 + 集合」：後者能表示
+   * 「有設施但適齡層是空的」這種不可能的狀態。
+   *
+   * §7.1：有設施但不含小孩年齡層、且無可奔跑空間可替代 → **硬過濾剔除**。
+   * 家長不會「去了才發現不適合」，而是看到現場只有大型遊具就事前排除。
+   */
+  facilityAgeBands: text("facility_age_bands", { mode: "json" }).$type<AgeBand[]>(),
+
+  /**
+   * 這個「地方」適合的月齡範圍，與 facilityAgeBands 是不同的概念（ADR-0014）。
+   * 步道沒有遊具，但對六個月大的嬰兒仍然不適合——那要靠這個欄位擋。
+   */
+  suitableAgeMonths: text("suitable_age_months", { mode: "json" })
+    .$type<AgeRangeMonths>()
+    .notNull(),
+
+  /** 能否自由跑動 0–3。可補償「無適齡設施」（§7.1）。 */
+  runnableSpace: integer("runnable_space").$type<Level0to3>().notNull(),
+  /** 3＝跑不掉；0＝鄰接車道或開放水域。幼兒階段的硬過濾條件。 */
+  safetyEnclosure: integer("safety_enclosure").$type<Level0to3>().notNull(),
+  /**
+   * 家長的體力消耗 1–5。超過偏好上限 → **硬過濾剔除**。
+   *
+   * §6.2：這是決策中被長期忽略的變數。決定要不要去的是家長，
+   * 「小孩玩得開心但家長累垮」與「兩者皆可」是不同的結果。
+   */
+  parentEffort: integer("parent_effort").$type<Rating>().notNull(),
+
+  // --- 環境 ---
+  indoorType: text("indoor_type").$type<IndoorType>().notNull(),
+  /** 夏季關鍵（§6.2） */
+  hasAirConditioning: integer("has_air_conditioning", { mode: "boolean" }).notNull(),
+  /** 遮蔭 0–3，對高溫的補償 */
+  shadeLevel: integer("shade_level").$type<Level0to3>().notNull(),
+  strollerFriendly: integer("stroller_friendly", { mode: "boolean" }).notNull(),
+
+  // --- 資料品質 ---
+  /** key 是本表的欄位名。匯入器只能覆蓋值為 category_prior 的欄位。 */
+  fieldSources: text("field_sources", { mode: "json" })
+    .$type<Partial<Record<string, FieldSource>>>()
+    .notNull()
+    .default(sql`'{}'`),
+  /**
+   * 使用者按「看了覺得不適合」時標記（ADR-0011）。
+   * 這是**資料品質訊號不是偏好訊號**——它降低這個地點的曝光，
+   * 但不影響類別權重。
+   */
+  dataSuspect: integer("data_suspect", { mode: "boolean" }).notNull().default(false),
+  dataSuspectReason: text("data_suspect_reason"),
+  lastVerifiedAt: text("last_verified_at"),
+  notes: text("notes"),
+});
+
 /**
- * napStage 與 mobility 是推薦邏輯的支點，也是本產品相對於一般旅遊 App 的結構性優勢：
- * 它們每 3–6 個月改變一次，推薦結果必須跟著變，這本身就構成回訪理由。
+ * 「候選 / 已驗證」刻意**不存成欄位**，由造訪紀錄筆數導出。
+ * 存成欄位會與紀錄不同步，而它零成本就能算出來。
  */
+
+// ---------------------------------------------------------------------------
+// Child（小孩）— 與 v0.2 幾乎相同，§6.1 與 §11.3 皆未變
+// ---------------------------------------------------------------------------
+
 export const children = sqliteTable("children", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
-  /** ISO date, "YYYY-MM-DD" */
+  /** ISO date */
   birthDate: text("birth_date").notNull(),
-  /** 預設由月齡推算（見 lib/schedule/napStage.ts），此欄位是覆寫後的實際值 */
+  /** 由月齡推導，可手動覆寫 */
   napStage: text("nap_stage").$type<NapStage>().notNull(),
-  /** "HH:MM" */
   wakeTime: text("wake_time").notNull(),
-  /** 可能有兩段（two_naps 階段） */
   napWindows: text("nap_windows", { mode: "json" })
     .$type<TimeWindow[]>()
     .notNull()
     .default(sql`'[]'`),
-  /** "HH:MM" */
   bedTime: text("bed_time").notNull(),
   mobility: text("mobility").$type<Mobility>().notNull(),
   notes: text("notes"),
 });
 
 // ---------------------------------------------------------------------------
-// Place（設計架構書 §5.2）
+// HomeBase — 固定的家，不是當下位置
 // ---------------------------------------------------------------------------
 
-/**
- * 欄位設計原則：**只記錄 Google Maps 和現有懶人包查不到的東西。**
- *
- * 這是本產品的核心差異化，每個欄位都是刻意的選擇。
- * 要增刪欄位請先討論（CONTRIBUTING.md §4），不要直接改。
- */
-export const places = sqliteTable("places", {
-  id: text("id").primaryKey(),
-
-  /**
-   * v1 永遠是同一個值。預留給未來的多使用者支援，
-   * 這樣那天到來時不需要大改 schema（設計架構書 §12.1）。
-   */
-  ownerId: text("owner_id").notNull().default("local"),
-
-  name: text("name").notNull(),
-  category: text("category").$type<Category>().notNull(),
-
-  // --- 位置 ---
+export const homeBase = sqliteTable("home_base", {
+  id: text("id").primaryKey().default("default"),
   lat: real("lat").notNull(),
   lng: real("lng").notNull(),
-  address: text("address").notNull(),
-  /**
-   * 從家出發的**實際**車程，手填。
-   * 刻意不接 Directions API：一來省錢，二來自己開過的時間（含找停車位）比 API 準。
-   * AI 建檔時禁止填寫此欄位（設計架構書 §7.2）。
-   */
-  driveMinutes: integer("drive_minutes").notNull(),
-  parking: text("parking").$type<ParkingRating>().notNull(),
-
-  // --- 核心：現有平台查不到的欄位 ---
-  /** 放電強度 1–5 */
-  energyBurn: integer("energy_burn").$type<Rating>().notNull(),
-  /** 實際能撐多久，不是官方建議時間 */
-  typicalDurationMin: integer("typical_duration_min").notNull(),
-  bestTimeSlots: text("best_time_slots", { mode: "json" })
-    .$type<TimeSlot[]>()
-    .notNull()
-    .default(sql`'[]'`),
-  /** 硬性範圍：不在此範圍內於 Stage 1 直接剔除 */
-  ageRange: text("age_range", { mode: "json" })
-    .$type<AgeRangeMonths>()
-    .notNull(),
-  /**
-   * 最適年齡。落在此範圍 Stage 2 年齡契合度給滿分。
-   * AI 建檔時禁止填寫——這是關於你小孩的判斷，不是關於地點的事實（§7.2）。
-   */
-  sweetSpotAge: text("sweet_spot_age", { mode: "json" }).$type<AgeRangeMonths>(),
-
-  // --- 環境條件 ---
-  indoor: text("indoor").$type<IndoorType>().notNull(),
-  shadeLevel: integer("shade_level").$type<ShadeLevel>().notNull(),
-  strollerFriendly: integer("stroller_friendly", { mode: "boolean" }).notNull(),
-  hasChangingTable: integer("has_changing_table", {
-    mode: "boolean",
-  }).notNull(),
-  hasNursingSpace: integer("has_nursing_space", { mode: "boolean" }).notNull(),
-  hasFoodOnSite: integer("has_food_on_site", { mode: "boolean" }).notNull(),
-  hasWaterPlay: integer("has_water_play", { mode: "boolean" }).notNull(),
-  needsReservation: integer("needs_reservation", { mode: "boolean" }).notNull(),
-
-  // --- 實務情報 ---
-  /** 自由文字，例如「平日 14:00-16:00 人最少」 */
-  quietHours: text("quiet_hours"),
-  crowdLevel: text("crowd_level", { mode: "json" }).$type<CrowdLevel>().notNull(),
-  costPerFamily: integer("cost_per_family"),
-  /** 雨天備案：天氣突變時可改去的室內地點 */
-  indoorBackupPlaceIds: text("indoor_backup_place_ids", { mode: "json" })
-    .$type<string[]>()
-    .notNull()
-    .default(sql`'[]'`),
-
-  // --- 主觀 ---
-  /** AI 建檔時禁止填寫（§7.2） */
-  personalRating: integer("personal_rating").$type<Rating>(),
-  notes: text("notes"),
-  tags: text("tags", { mode: "json" })
-    .$type<string[]>()
-    .notNull()
-    .default(sql`'[]'`),
-
-  // --- 資料來源追蹤（設計架構書 §5.2，v0.2 新增）---
-  /** key 是 Place 的欄位名，value 是該欄位的來源。見 FieldSource 的註解。 */
-  fieldSources: text("field_sources", { mode: "json" })
-    .$type<Partial<Record<string, FieldSource>>>()
-    .notNull()
-    .default(sql`'{}'`),
-  /** ISO datetime。距今太久的資料在 UI 上應提示重新確認。 */
-  lastVerifiedAt: text("last_verified_at"),
+  /** 縣市，決定抓哪一份 CWA 鄉鎮預報（ADR-0006、ADR-0012） */
+  cwaCountyName: text("cwa_county_name").notNull(),
+  cwaLocationName: text("cwa_location_name").notNull(),
+  maxDriveMinutes: integer("max_drive_minutes").notNull(),
 });
 
 // ---------------------------------------------------------------------------
-// Visit（設計架構書 §5.3）
+// FamilyPreference（家庭偏好）— §6.3
 // ---------------------------------------------------------------------------
 
+/** 單列表。小孩約束決定「哪些不可能」，家庭偏好決定「哪些你們真的會去」。 */
+export const familyPreferences = sqliteTable("family_preferences", {
+  id: text("id").primaryKey().default("default"),
+  /** −2…+2，負為偏室內。五段而非連續值，UI 才講得清楚（ADR-0014）。 */
+  outdoorTendency: integer("outdoor_tendency").notNull().default(0),
+  /** 家長負擔上限 1–5。超過的地點在 Stage 1 被剔除。 */
+  maxParentEffort: integer("max_parent_effort").$type<Rating>().notNull(),
+  requiresMeal: integer("requires_meal", { mode: "boolean" }).notNull().default(false),
+});
+
 /**
- * **append-only，永不刪除**（設計架構書 §12.3）。這是本產品最有價值的資產。
+ * 各類別的相對偏好，由回饋累積學習（§6.3）。
  *
- * 注意 Visit 在評分中只佔 5%。它真正的價值不在自動調整排序，
- * 而在讓開發者發現自己把靜態欄位填錯了（§2）——
- * 「不是這地點不好，是兩歲前撐不到兩小時」，然後手動改 sweetSpotAge。
- * 所以 UI 的地點歷史摘要視圖（§10.2）比任何自動化的權重學習都重要。
+ * 另立一張表而不是塞進 familyPreferences 的 JSON 欄位，
+ * 因為它有學習狀態要追蹤，而且 §6.3 硬性要求 UI 顯示學習依據
+ * （「戶外公園 +35%，依你最近 12 次選擇」）——那個「12 次」必須查得到。
  */
+export const categoryPreferences = sqliteTable("category_preferences", {
+  category: text("category").$type<Category>().primaryKey(),
+  /** 由採納／跳過／回饋累積 */
+  learnedWeight: real("learned_weight").notNull().default(0),
+  /**
+   * 非 null 時**優先於學習值，且學習不再更新它**（§6.3）。
+   * 你必須能在半年後說「這條學錯了」然後改掉它。
+   */
+  manualWeight: real("manual_weight"),
+  /** **少於 8 筆時不套用學習權重**（§6.3） */
+  sampleCount: integer("sample_count").notNull().default(0),
+  lastUpdatedAt: text("last_updated_at"),
+});
+
+// ---------------------------------------------------------------------------
+// ContextOverride（一次性情境）— §8
+// ---------------------------------------------------------------------------
+
+/** AI 可以覆寫的推薦條件，範圍由 §8 限定，不得擴充。 */
+export interface ContextOverrideValues {
+  maxParentEffort?: Rating;
+  availableWindow?: TimeWindow;
+  maxDriveMinutes?: number;
+  avoidCrowds?: boolean;
+  maxEnergyBurn?: Rating;
+}
+
+/**
+ * 一次性情境輸入的轉譯結果。
+ *
+ * **僅對本次有效，不寫入 FamilyPreference，不影響長期學習**（§8.3）。
+ * 原始輸入與轉譯說明必須保存，否則日後會誤讀——
+ * 「因外婆同行才去沙灘」不該被解讀為「沙灘一直都適合我們家」（§6.4）。
+ */
+export const contextOverrides = sqliteTable("context_overrides", {
+  id: text("id").primaryKey(),
+  createdAt: text("created_at").notNull(),
+  /** 使用者實際打的字 */
+  rawInput: text("raw_input").notNull(),
+  /** 經型別與範圍驗證後的結構化值。超出允許範圍的一律丟棄（§8.6）。 */
+  overrides: text("overrides", { mode: "json" })
+    .$type<ContextOverrideValues>()
+    .notNull()
+    .default(sql`'{}'`),
+  /** 給 UI 顯示的說明，必須明示且可逐項取消（§8.2） */
+  explanation: text("explanation").notNull().default(""),
+});
+
+// ---------------------------------------------------------------------------
+// Suggestion（推播建議）— 回饋迴路的樞紐
+// ---------------------------------------------------------------------------
+
+export type SuggestionKind = "morning" | "afternoon";
+
+/**
+ * 使用者對建議的回應（ADR-0011）。
+ *
+ * 原本 §9.3 只有「去了／沒去」，但「沒去」混合了三種完全不同的事，
+ * 卻全部被當成降權依據餵給最重要的長期訊號。
+ */
+export type SuggestionResponse =
+  /** 去了 → 類別權重 ↑，產生一筆 Visit */
+  | "went"
+  /** 今天沒出門 → **不影響任何權重**。這是生活的問題不是推薦的問題 */
+  | "stayed_home"
+  /** 去了別的地方 → 類別權重 ↓（幅度小於採納） */
+  | "went_elsewhere"
+  /** 看了覺得不適合 → **不影響偏好**，改為標記該地點 dataSuspect */
+  | "looked_unsuitable";
+
+/**
+ * 系統送出了什麼。
+ *
+ * §6.4 說「到離時間：取當日推播的建議值，不要求使用者提供」——
+ * **那個建議值就存在這裡。** 這張表是「三次點擊完成回饋」得以成立的原因。
+ */
+export const suggestions = sqliteTable("suggestions", {
+  id: text("id").primaryKey(),
+  sentAt: text("sent_at").notNull(),
+  kind: text("kind").$type<SuggestionKind>().notNull(),
+
+  /** 主建議。「今天不要出門」路徑時為 null。 */
+  primaryPlaceId: text("primary_place_id").references(() => places.id),
+  /** 備案，至少一個室內選項供天氣突變（§7.3） */
+  backupPlaceId: text("backup_place_id").references(() => places.id),
+  /**
+   * 探索槽（§7.4）。引擎產出三項，但**推播只顯示前兩項**（§9.1
+   * 「不列第三個」），這一項在落地頁才看得到。
+   */
+  explorePlaceId: text("explore_place_id").references(() => places.id),
+
+  /** "HH:MM"，§9.1 要求具體到分鐘 */
+  suggestedDeparture: text("suggested_departure"),
+  suggestedReturn: text("suggested_return"),
+
+  /**
+   * 「今天不要出門」的理由。硬過濾後無存活地點時填。
+   * §9.1：推播不得沉默，也不得降低標準硬推——
+   * 「今天大雨、體感 34°C，建議在家」是有價值的輸出。
+   */
+  noOutingReason: text("no_outing_reason"),
+
+  contextOverrideId: text("context_override_id").references(() => contextOverrides.id),
+
+  response: text("response").$type<SuggestionResponse>(),
+  respondedAt: text("responded_at"),
+  /** went_elsewhere 時若使用者願意說去了哪，這是比較性訊號，強度高得多 */
+  wentElsewherePlaceId: text("went_elsewhere_place_id").references(() => places.id),
+  responseNote: text("response_note"),
+});
+
+// ---------------------------------------------------------------------------
+// Visit（造訪紀錄）— §6.4，永不刪除
+// ---------------------------------------------------------------------------
+
+/** 停留時間感受。相對值而非分鐘數——使用者不必知道確切時間（§9.2）。 */
+export type DurationFeeling = "shorter" | "as_expected" | "longer";
+
+/** 過程結果。「崩潰」是最誠實的訊號。 */
+export type VisitOutcome = "smooth" | "ok" | "meltdown";
+
 export const visits = sqliteTable("visits", {
   id: text("id").primaryKey(),
   placeId: text("place_id")
     .notNull()
     .references(() => places.id),
+  /** 由推播產生時有值，手動補建時為 null */
+  suggestionId: text("suggestion_id").references(() => suggestions.id),
+  date: text("date").notNull(),
+
   childIds: text("child_ids", { mode: "json" })
     .$type<string[]>()
     .notNull()
     .default(sql`'[]'`),
-  /** ISO date, "YYYY-MM-DD" */
-  date: text("date").notNull(),
-  /** "HH:MM" */
-  arrivedAt: text("arrived_at").notNull(),
-  /** "HH:MM" */
-  leftAt: text("left_at").notNull(),
-
   /**
-   * 月齡**快照**，不要用 birthDate 反推。
-   * 兩年後回頭看「小孩 18 個月時的結果」才有意義，反推會失去當下情境。
-   * 順序對應 childIds。
+   * 月齡**快照**，順序對應 childIds。
+   * **不可由 birthDate 反推**——兩年後回顧「18 個月時的結果」才有意義（§6.4）。
    */
   childAgesMonths: text("child_ages_months", { mode: "json" })
     .$type<number[]>()
     .notNull()
     .default(sql`'[]'`),
 
-  /** 當天實際天氣的快照，同樣是為了保留當下情境 */
-  weatherSnapshot: text("weather_snapshot", { mode: "json" })
-    .$type<WeatherSnapshot>()
-    .notNull(),
+  // --- 唯二必填，且皆由推播上的按鈕產生（§6.4、§13.2.6）---
+  durationFeeling: text("duration_feeling").$type<DurationFeeling>().notNull(),
+  outcome: text("outcome").$type<VisitOutcome>().notNull(),
 
-  /** 整體結果 1–5 */
-  outcome: integer("outcome").$type<Rating>().notNull(),
-  /** 實際放電強度，用來對照 places.energyBurn 是否填錯 */
-  actualEnergyBurn: integer("actual_energy_burn").$type<Rating>().notNull(),
-  napHappened: integer("nap_happened", { mode: "boolean" }).notNull(),
+  // --- 以下皆選填。系統填的不算使用者負擔（ADR-0014）---
+  /** 取自當日推播的建議值，不要求使用者提供（§6.4） */
+  arrivedAt: text("arrived_at"),
+  leftAt: text("left_at"),
+  /** Phase 1 不收集（§6.4） */
+  actualDriveMinutes: integer("actual_drive_minutes"),
   /**
-   * 最誠實的訊號。長期累積能反推出「這地點對這年齡不適合」，
-   * 是懶人包永遠給不了的洞察。
+   * 當日天氣快照。v1.0 未要求，但保留（ADR-0014）：
+   * 零使用者負擔，而且**事後補不回來**。
    */
-  meltdown: integer("meltdown", { mode: "boolean" }).notNull(),
-  wouldReturn: integer("would_return", { mode: "boolean" }).notNull(),
+  weatherSnapshot: text("weather_snapshot", { mode: "json" }).$type<WeatherSnapshot>(),
+  /**
+   * 當次若套用過一次性情境，必須一併保存，否則日後會誤讀（§6.4）。
+   */
+  contextOverrideId: text("context_override_id").references(() => contextOverrides.id),
   notes: text("notes"),
-  photos: text("photos", { mode: "json" })
-    .$type<string[]>()
-    .notNull()
-    .default(sql`'[]'`),
 });
 
 // ---------------------------------------------------------------------------
-// HomeBase（設計架構書 §5.4）
+// 支援性資料
 // ---------------------------------------------------------------------------
 
+/** 日型，決定車程係數（§11.2） */
+export type DayType = "weekday" | "weekend" | "public_holiday" | "long_weekend";
+
+/** 政府行政機關辦公日曆表，年度快取，無需即時查詢（§10.2） */
+export const calendarDays = sqliteTable("calendar_days", {
+  /** "YYYY-MM-DD" */
+  date: text("date").primaryKey(),
+  dayType: text("day_type").$type<DayType>().notNull(),
+  note: text("note"),
+});
+
+/** Web Push 訂閱。iOS 僅在 PWA 加入主畫面後可用（§9.4）。 */
+export const pushSubscriptions = sqliteTable("push_subscriptions", {
+  id: text("id").primaryKey(),
+  endpoint: text("endpoint").notNull(),
+  p256dh: text("p256dh").notNull(),
+  auth: text("auth").notNull(),
+  createdAt: text("created_at").notNull(),
+  lastUsedAt: text("last_used_at"),
+});
+
 /**
- * 單列表。id 固定為 "default"。
+ * Google Routes API 精算結果的短期快取。
  *
- * **這是固定的「家」，不是使用者當下的位置。** Place.driveMinutes 是以這個點
- * 為起點量出來的，Visit 紀錄也是以它為錨點累積的。它一旦浮動，
- * 全部地點的車程基準會同時失效。
+ * ⚠️ **必須在 30 天內刪除。** Google Maps Platform 服務條款允許暫存
+ * distance / duration / ETA 最多 30 個連續日曆日（ADR-0013）。
+ *
+ * **這是合規要求不是效能優化**，所以清理排程失敗必須能被發現，不得靜默。
  */
-export const homeBase = sqliteTable("home_base", {
-  id: text("id").primaryKey().default("default"),
-  lat: real("lat").notNull(),
-  lng: real("lng").notNull(),
-  /**
-   * 縣市名，如「新北市」（ADR-0006）。
-   *
-   * 設計架構書 §5.4 原本沒有這個欄位，實際串接 CWA 後發現非有不可：
-   * 鄉鎮預報被拆成 22 個縣市各自的資料集，而且鄉鎮名稱不唯一
-   * （東區橫跨新竹市／嘉義市／臺中市／臺南市）。
-   *
-   * 值必須是 lib/weather/townships.ts 的 CountyName 之一。
-   */
-  cwaCountyName: text("cwa_county_name").notNull(),
-  /** 對應中央氣象署鄉鎮預報地區名，如「板橋區」。用於 F-D0047 系列 API。 */
-  cwaLocationName: text("cwa_location_name").notNull(),
-  maxDriveMinutes: integer("max_drive_minutes").notNull(),
+export const routeCache = sqliteTable("route_cache", {
+  id: text("id").primaryKey(),
+  placeId: text("place_id")
+    .notNull()
+    .references(() => places.id),
+  /** 去程與回程必須分開查與分開存（§7.1） */
+  direction: text("direction").$type<"outbound" | "return">().notNull(),
+  /** 查詢時指定的出發時刻，ISO datetime */
+  departureAt: text("departure_at").notNull(),
+  durationMinutes: integer("duration_minutes").notNull(),
+  /** 清理排程依此判斷是否超過 30 天 */
+  fetchedAt: text("fetched_at").notNull(),
 });
 
 // ---------------------------------------------------------------------------
 // 推斷型別
 // ---------------------------------------------------------------------------
 
-export type Child = typeof children.$inferSelect;
-export type NewChild = typeof children.$inferInsert;
-
 export type Place = typeof places.$inferSelect;
 export type NewPlace = typeof places.$inferInsert;
-
-export type Visit = typeof visits.$inferSelect;
-export type NewVisit = typeof visits.$inferInsert;
-
+export type Child = typeof children.$inferSelect;
+export type NewChild = typeof children.$inferInsert;
 export type HomeBase = typeof homeBase.$inferSelect;
 export type NewHomeBase = typeof homeBase.$inferInsert;
+export type FamilyPreference = typeof familyPreferences.$inferSelect;
+export type NewFamilyPreference = typeof familyPreferences.$inferInsert;
+export type CategoryPreference = typeof categoryPreferences.$inferSelect;
+export type NewCategoryPreference = typeof categoryPreferences.$inferInsert;
+export type Suggestion = typeof suggestions.$inferSelect;
+export type NewSuggestion = typeof suggestions.$inferInsert;
+export type Visit = typeof visits.$inferSelect;
+export type NewVisit = typeof visits.$inferInsert;
+export type ContextOverride = typeof contextOverrides.$inferSelect;
+export type NewContextOverride = typeof contextOverrides.$inferInsert;
+export type CalendarDay = typeof calendarDays.$inferSelect;
+export type PushSubscription = typeof pushSubscriptions.$inferSelect;
+export type RouteCacheEntry = typeof routeCache.$inferSelect;

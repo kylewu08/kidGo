@@ -43,6 +43,8 @@ yarn-error.log*
 next-env.d.ts
 
 # KidGo 本地資料庫（ADR-0001：資料庫是一個本地檔案，不進版控）
+# 備份檔含小孩生日等個人資料，同樣不進版控
+/data/backup/
 /data/*.db
 /data/*.db-shm
 /data/*.db-wal
