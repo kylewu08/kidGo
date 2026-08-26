@@ -120,27 +120,33 @@ commit 訊息與 ADR 的規則見 [`CONTRIBUTING.md`](CONTRIBUTING.md)。
 
 ## 目前狀態（2026-08-26）
 
-正在從 v0.2 遷移到 v1.0。**遷移對照表在 [ADR-0008](docs/adr/0008-adopt-spec-v1.md)，動手前先讀。**
+從 v0.2 遷移到 v1.0，**決策層已完成**。對照表在 [ADR-0008](docs/adr/0008-adopt-spec-v1.md)。
 
 | 區域 | 狀態 |
 |------|------|
-| `lib/db/`、`lib/domain/` | ✅ **已是 v1.0**。11 張表、§11 的領域參數，97 個測試 |
-| `lib/weather/`、`lib/routes/`、`lib/schedule/` | ✅ 未受影響，可直接沿用 |
-| `app/settings/` | ✅ 出發點與小孩設定沿用（ADR-0012、§6.1 未變） |
-| `lib/recommend/` | ⚠️ **仍指向 v0.2 的欄位，尚未改寫。`npx tsc` 會在此報錯** |
-| `app/` 其餘 | 🔜 v0.2 的地點 CRUD 與首頁已移除。落地頁待做 |
-| 匯入器、推播 | 🔜 尚未開始 |
+| `lib/db/`、`lib/domain/` | ✅ v1.0。11 張表、§11 的領域參數 |
+| `lib/recommend/` | ✅ v1.0。三階段、七因子、防同溫層、理由分流 |
+| `lib/weather/`、`lib/routes/`、`lib/schedule/` | ✅ 未受影響 |
+| `app/settings/` | ✅ 出發點與小孩設定沿用 |
+| **匯入器** | 🔜 **下一項**。Phase 1 的起點（§13.1） |
+| 家庭偏好 UI（初始三題） | 🔜 schema 已就位，缺畫面 |
+| 推播、落地頁 | 🔜 尚未開始 |
+| 部署 | 📋 方案已定（[ADR-0015](docs/adr/0015-reuse-ghcr-watchtower-pipeline.md)），延後至匯入器完成後 |
 
-### 下一個里程碑：改寫 `lib/recommend/`
+`npm test` 221 個全過、`npm run lint` 無警告、`npx tsc --noEmit` 無錯、`npm run build` 成功。
+資料庫目前有出發點與一位小孩，**沒有地點**（等匯入器）。
 
-依 v1.0 §7 與 ADR-0011：
+### 下一步：開放資料匯入器（§10.1）
 
-1. **Stage 1 新增三條硬過濾**：適齡（§7.1「必須是硬過濾，不得移至評分扣分」）、
-   家長負擔超過偏好上限、幼兒階段且安全封閉性過低
-2. **Stage 2 換權重**：作息 25 / 年齡 20 / 天氣 15 / **家庭偏好 15** / 新鮮 10 / 車程 10 / 歷史 5，
-   並加入壅塞的**超線性**懲罰
-3. **Stage 3 提前到 Phase 1**：主建議 / 備案 / 探索槽，含 §7.4 的防同溫層機制
-4. **車程去程與回程分開計算**（§7.1）
-5. **`reasons.ts` 依候選／已驗證分流**（ADR-0011）
+1. 下載五類開放資料（遊戲場清冊、親子館、公園設施、觀光景點、圖書館）
+2. 正規化並套用 `lib/domain/category-priors.ts` 的先驗值，全部標 `category_prior`
+3. 依 [ADR-0009](docs/adr/0009-import-radius-not-counties.md) 只保留住家直線半徑內的
+4. **重複匯入必須冪等**，且不得覆蓋 `fieldSources` 非 `category_prior` 的欄位
+   （規則見 [`docs/資料模型草案.md`](docs/資料模型草案.md) §7）
+5. 匯入階段**不呼叫 Google**（[ADR-0013](docs/adr/0013-geometric-baseline-drive-estimate.md)）
 
-之後才是匯入器 → 天氣 → 推播 → 落地頁（§13.1 的順序）。
+之後：家庭偏好三題 → 推播 → 落地頁。
+
+### 兩個已知的規格缺口（[ADR-0016](docs/adr/0016-spec-gaps-found-in-implementation.md)）
+
+實作 Stage 1 時發現，都需要改資料模型所以尚未動手。

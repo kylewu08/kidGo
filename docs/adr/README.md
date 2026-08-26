@@ -28,3 +28,4 @@ ADR 一旦寫下就不修改內容。決定變了就寫新的一份，把舊的�
 | [0013](0013-geometric-baseline-drive-estimate.md) | 基準車程改為自算幾何估計，匯入階段不呼叫 Google | 已採納（「刻意低估」的指引被 0014 修正） | 2026-08-25 |
 | [0014](0014-data-model-decisions.md) | 資料模型的五項取捨定案 | 已採納 | 2026-08-25 |
 | [0015](0015-reuse-ghcr-watchtower-pipeline.md) | 沿用既有 GHCR + Watchtower 管線；**SQLite 必須掛持久卷** | 已採納（實作延後） | 2026-08-26 |
+| [0016](0016-spec-gaps-found-in-implementation.md) | 實作 Stage 1 時發現的兩個規格缺口（需預約、避開人多） | **提議中** | 2026-08-26 |
