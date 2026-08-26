@@ -111,7 +111,7 @@ npm run lint    # 含 AI 邊界的強制檢查
 | Stage 3 多樣性、雨天備案 | Phase 2 |
 | AI 輔助建檔（§7） | Phase 2。前 50 筆手動建檔是確認欄位設計是否合理的唯一機會 |
 | PWA 離線快取 | Phase 2 |
-| **部署** | **未解決。** ADR-0001 選了本地 SQLite，而 Vercel 這類無狀態平台沒有持久磁碟。要真正上線需要有持久儲存的環境（Fly.io、自架、家裡的機器），或重新評估 ADR-0001 |
+| **部署** | 方案已定（[ADR-0015](docs/adr/0015-reuse-ghcr-watchtower-pipeline.md)）：沿用既有的 GHCR + Watchtower 管線推到 Synology NAS，Cloudflare Tunnel 已在運行。**實作延後至引擎與匯入器完成後。** |
 | energyBurn / personalRating / crowdLevel 未進評分 | 見 [ADR-0007](docs/adr/0007-unused-place-fields-in-scoring.md)，待實際使用後再決定 |
 
 ---

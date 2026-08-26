@@ -22,8 +22,9 @@ ADR 一旦寫下就不修改內容。決定變了就寫新的一份，把舊的�
 | [0007](0007-unused-place-fields-in-scoring.md) | energyBurn / personalRating / crowdLevel 等核心欄位未進入評分 | 已被 ADR-0008 結案 | 2026-08-24 |
 | [0008](0008-adopt-spec-v1.md) | **改採設計架構書 v1.0，以演進而非重寫遷移**（含 v0.2 → v1.0 對照表） | 已採納 | 2026-08-25 |
 | [0009](0009-import-radius-not-counties.md) | 匯入全臺資料，只對住家直線半徑內的地點算基準車程 | 已採納（計算方式被 ADR-0013 取代） | 2026-08-25 |
-| [0010](0010-deploy-on-synology-nas.md) | 部署在自有 Synology NAS，SQLite 保留 | 已採納 | 2026-08-25 |
+| [0010](0010-deploy-on-synology-nas.md) | 部署在自有 Synology NAS，SQLite 保留 | 已採納（DDNS/憑證/CGNAT 三項待辦被 0015 作廢） | 2026-08-25 |
 | [0011](0011-push-spec-revisions.md) | 推播規格四項修訂：理由分流、「沒去」拆分、第二則雙用途、帶連結 | 已採納 | 2026-08-25 |
 | [0012](0012-home-location-by-township-dropdown.md) | 住家用縣市／鄉鎮下拉，不接 Geocoding API | 已採納（第一階段） | 2026-08-25 |
 | [0013](0013-geometric-baseline-drive-estimate.md) | 基準車程改為自算幾何估計，匯入階段不呼叫 Google | 已採納（「刻意低估」的指引被 0014 修正） | 2026-08-25 |
 | [0014](0014-data-model-decisions.md) | 資料模型的五項取捨定案 | 已採納 | 2026-08-25 |
+| [0015](0015-reuse-ghcr-watchtower-pipeline.md) | 沿用既有 GHCR + Watchtower 管線；**SQLite 必須掛持久卷** | 已採納（實作延後） | 2026-08-26 |
