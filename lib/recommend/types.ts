@@ -1,28 +1,31 @@
 /**
- * 推薦引擎的輸入與輸出型別（設計架構書 §6.1、§6.5）
+ * 推薦引擎的輸入與輸出型別（設計架構書 v1.0 §7）
  *
- * ⚠️ 這個檔案不在設計架構書 §8.2 列出的結構裡。加它的理由是 filters.ts 與
- * scoring.ts 都需要 RecommendContext，型別放在 index.ts 會造成循環 import。
+ * §7.6：引擎是純函式，外部資料（天氣、路況、紀錄）由呼叫端取得後傳入。
+ * 這裡定義的就是那個邊界。
  */
 
-import type { Child, Place, TimeWindow, Visit } from "@/lib/db/schema";
+import type {
+  CategoryPreference,
+  Child,
+  ContextOverrideValues,
+  DayType,
+  FamilyPreference,
+  Place,
+  TimeWindow,
+  Visit,
+} from "@/lib/db/schema";
 
-/**
- * 逐三小時的天氣預報，對應中央氣象署 F-D0047 系列的資料粒度（設計架構書 §9）。
- *
- * ⚠️ 設計架構書沒有定義 WeatherForecast 的形狀，只提到需要「逐 3 小時降雨機率、
- * 體感溫度」以及 §6.5 用到的 `weather.rainProbAfter(15)`。這裡定義成**純資料**
- * 而非帶方法的物件，因為 §8.3 要求 recommend() 不呼叫網路——
- * 預報必須在進入推薦引擎之前就取好，引擎只負責讀。
- */
+// ---------------------------------------------------------------------------
+// 天氣
+// ---------------------------------------------------------------------------
+
+/** 逐三小時的預報，對應 CWA F-D0047 的資料粒度（§10.2） */
 export interface WeatherSlot {
-  /** 這個三小時區間的起點 */
   startsAt: Date;
-  /** 降雨機率 0–100 */
+  /** 0–100 */
   rainProbability: number;
-  /** 體感溫度。用體感而非氣溫，理由見 thresholds.ts */
   apparentTempC: number;
-  /** CWA 的天氣現象描述，例如「多雲時陰短暫陣雨」 */
   condition: string;
 }
 
@@ -31,48 +34,74 @@ export interface WeatherForecast {
   slots: WeatherSlot[];
 }
 
-/** 推薦引擎的輸入（設計架構書 §6.1） */
+// ---------------------------------------------------------------------------
+// 車程
+// ---------------------------------------------------------------------------
+
+/**
+ * 去程與回程分開（§7.1「回程必須獨立計算，不可假設等於去程」）。
+ *
+ * 早上出發與下午返程是不同的路況，而「能否在午睡前返家」正是依賴回程。
+ */
+export interface DriveLegs {
+  outboundMinutes: number;
+  returnMinutes: number;
+}
+
+/**
+ * 車程的來源與信心度（§10.3）。
+ *
+ * §10.3.5：API 失敗時降級為係數估算並將信心度標為低，
+ * **UI 須明示「路況資料暫時無法取得」，不得靜默使用低信心估值。**
+ * 這個欄位就是讓 UI 有辦法做到那件事。
+ */
+export type DriveSource = "precise" | "coarse";
+
+export interface DriveEstimate extends DriveLegs {
+  source: DriveSource;
+  /** 幾何估計的基準值，用來算壅塞比值。精算時才有意義。 */
+  baselineMinutes: number;
+}
+
+// ---------------------------------------------------------------------------
+// 輸入
+// ---------------------------------------------------------------------------
+
 export interface RecommendContext {
   /** 「現在」。由呼叫端傳入而非在函式內取 new Date()，否則測試無法重現。 */
   timestamp: Date;
-  /** 這趟要帶的小孩。多個小孩時取最低分，見 scoring.ts */
   children: Child[];
+  /** 住家座標。幾何車程估計的起點。 */
+  home: { lat: number; lng: number };
   weather: WeatherForecast;
+  /** 決定車程係數（§11.2）。由呼叫端查行事曆後傳入。 */
+  dayType: DayType;
   maxDriveMinutes: number;
-  /** 今天可用的時間區間，"HH:MM" */
   availableWindow: TimeWindow;
-  /** 預設 14（THRESHOLDS.DEFAULT_EXCLUDE_RECENT_DAYS） */
+
+  familyPreference: FamilyPreference;
+  categoryPreferences: CategoryPreference[];
+
   excludeRecentDays?: number;
+
   /**
-   * 即時路況車程，placeId → 分鐘（ADR-0005）。
+   * 精算車程，placeId → 去回程分鐘（§7.1）。
    *
-   * 由呼叫端在**進入推薦引擎之前**取得（lib/routes/matrix.ts），
-   * 與 weather 完全相同的模式——§8.3 要求 recommend() 不呼叫網路。
-   *
-   * **缺席即代表退回 Place.driveMinutes。** 整個欄位不給也合法，
-   * 那就是離線或 API 失敗時的狀態，此時功能不中斷只是精度下降（P6）。
+   * 由呼叫端在**進入引擎之前**取得（lib/routes/），僅對粗篩後存活的前 8 名。
+   * **缺席即退回幾何估計**——那不是錯誤處理，是 P9 離線可用的保證。
    */
-  liveDriveMinutes?: ReadonlyMap<string, number>;
+  preciseDrive?: ReadonlyMap<string, DriveLegs>;
+
+  /**
+   * 一次性情境覆寫（§8），**必須已經過型別與範圍驗證**。
+   * 僅覆寫既有條件，不新增評分因子，僅對本次有效。
+   */
+  contextOverride?: ContextOverrideValues;
 }
 
-/** 一趟出遊的時間軸，Stage 1 與 Stage 2 都要用 */
-export interface TripTimeline {
-  departAt: Date;
-  arriveAt: Date;
-  leaveAt: Date;
-  /** 回到家的時間。午睡相容性判斷的關鍵。 */
-  homeAt: Date;
-}
-
-/** Stage 1 的結果。被剔除的地點也保留，附上原因供除錯與 UI 說明。 */
-export interface FilterResult {
-  place: Place;
-  passed: boolean;
-  /** 未通過時，第一個踩到的剔除理由 */
-  rejectedBy?: RejectionReason;
-  /** 不影響通過與否，但要提醒使用者的事項 */
-  warnings: string[];
-}
+// ---------------------------------------------------------------------------
+// Stage 1
+// ---------------------------------------------------------------------------
 
 export type RejectionReason =
   | "drive_too_long"
@@ -80,48 +109,95 @@ export type RejectionReason =
   | "rain"
   | "heat"
   | "age_out_of_range"
-  | "stroller_unfriendly";
+  | "stroller_unfriendly"
+  /** 有遊具但不含小孩年齡層，且無可奔跑空間可替代（§7.1） */
+  | "facility_age_mismatch"
+  /** 家長負擔超過偏好上限（§7.1） */
+  | "parent_effort_too_high"
+  /** 幼兒階段且安全封閉性過低（§7.1） */
+  | "unsafe_for_toddler";
 
-/** 六個因子各自的 0–1 得分，加權前的原始值。除錯用。 */
+export interface FilterResult {
+  place: Place;
+  passed: boolean;
+  /** 未通過時，第一個踩到的剔除理由 */
+  rejectedBy?: RejectionReason;
+  warnings: string[];
+  drive: DriveEstimate;
+}
+
+// ---------------------------------------------------------------------------
+// Stage 2
+// ---------------------------------------------------------------------------
+
 export type ScoreBreakdown = Record<
-  "schedule" | "age" | "weather" | "freshness" | "drive" | "history",
+  | "schedule"
+  | "age"
+  | "weather"
+  | "familyPreference"
+  | "freshness"
+  | "drive"
+  | "history",
   number
 >;
 
-/**
- * 推薦結果（設計架構書 §6.5）。
- *
- * ⚠️ 仍缺 §6.4 的 Stage 3 多樣性調整與 `backupPlace`（雨天備案），
- * 兩者都排在 Phase 2（§11）。除此之外的欄位都已就位。
- */
+export interface TripTimeline {
+  departAt: Date;
+  arriveAt: Date;
+  leaveAt: Date;
+  /** 回到家的時間。用**回程**車程算，不是去程。 */
+  homeAt: Date;
+}
+
+// ---------------------------------------------------------------------------
+// Stage 3 與輸出
+// ---------------------------------------------------------------------------
+
+/** §7.3：輸出固定為三項 */
+export type SlotKind = "primary" | "backup" | "explore";
+
 export interface Recommendation {
   place: Place;
-  /** 這次評分實際採用的車程（分鐘）。可能來自即時路況，也可能是基準值。 */
-  driveMinutes: number;
-  /** 上面那個數字的來源。UI 可據此決定要不要標示「即時路況」。 */
-  driveMinutesSource: "live" | "baseline";
+  /** 這一項在輸出裡的角色。null 代表未進入前三名。 */
+  slot: SlotKind | null;
   /** 0–100 */
   score: number;
-  /** UI 預設不顯示，僅開發模式可見（§6.5） */
   scoreBreakdown: ScoreBreakdown;
-  /** 每個小孩各自的總分。多小孩時 score 取其最低值。 */
   perChildScores: { childId: string; score: number }[];
+  drive: DriveEstimate;
   /**
-   * 人話的推薦理由，由 lib/recommend/reasons.ts 的規則模板產生。
-   *
-   * 呈現層的 LLM 可以潤飾，**不得改變語意，不得新增規則沒有產生的理由**
-   * （AGENTS.md、ADR-0002）。
+   * 人話的理由，由 reasons.ts 的規則模板產生。
+   * AI 可潤飾但**不得改變語意、不得新增規則未產生的理由**（§7.5）。
    */
   reasons: string[];
   warnings: string[];
-  /** "HH:MM"。§6.5 的 suggestedDeparture。 */
+  /** "HH:MM" */
   suggestedDeparture: string;
-  /** "HH:MM"。§6.5 的 suggestedReturn。 */
-  suggestedReturn: string;
+  /**
+   * "HH:MM"。**未造訪過的地點不給精確返家時間**（§7.5），
+   * 因為其停留時長僅為類別先驗的估計值。此時為 null。
+   */
+  suggestedReturn: string | null;
+  /** 候選（未造訪）或已驗證（有造訪紀錄）（§6.2） */
+  status: "candidate" | "verified";
   timeline: TripTimeline;
 }
 
-/** @deprecated 舊名稱，保留以免外部引用一次全斷。用 Recommendation。 */
-export type ScoredPlace = Recommendation;
+/** 引擎的完整輸出 */
+export interface RecommendResult {
+  /** 依 §7.3 挑出的三項，可能不足三項 */
+  slots: Recommendation[];
+  /** 全部通過硬過濾並評分的地點，依分數排序。除錯與落地頁用。 */
+  scored: Recommendation[];
+  /** 被剔除的地點與原因。調門檻時看得到才調得動。 */
+  rejected: FilterResult[];
+  /**
+   * 硬過濾後無存活地點時的說明（§9.1「今天不要出門」路徑）。
+   * **推播不得沉默，也不得降低標準硬推。**
+   */
+  noOutingReason: string | null;
+  /** 偏好權重是否被 §7.4 防線一抑制。UI 可據此說明為何排序看起來不同。 */
+  preferenceSuppressed: boolean;
+}
 
-export type { Child, Place, TimeWindow, Visit };
+export type { Child, Place, TimeWindow, Visit, DayType };

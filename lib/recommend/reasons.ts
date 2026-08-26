@@ -1,66 +1,66 @@
 /**
- * 規則式理由模板（設計架構書 §6.5）
+ * 規則式理由模板（設計架構書 v1.0 §7.5、§13.2.9）
  *
  * **這是 AI 邊界最敏感的一個檔案。**
  *
- * `Recommendation.reasons` 與 `warnings` 永遠由這裡的規則產生。
- * 呈現層的 LLM 可以潤飾句子讓它更自然，**不得改變語意，
- * 也不得新增這裡沒有產生的理由**（AGENTS.md、ADR-0002）。
+ * 理由與警示永遠由這裡的規則產生。呈現層的 LLM 可以潤飾句子，
+ * **不得改變語意，也不得新增這裡沒有產生的理由**。
+ * §13.2.9 進一步要求推播文案與推薦理由**共用同一組模板**。
  *
  * 理由是這樣：一個推薦如果附上一條系統其實沒有考慮過的理由，
  * 那就是憑空捏造的說服力。使用者會依照那條理由做決定——
  * 帶著一歲半的小孩開四十分鐘車出門——而它是假的。
  *
- * 所以每條理由都必須能對回 `scoreBreakdown` 裡的某個數字，
- * 或對回一個明確的事實（午睡窗、預報時段）。這也讓理由可以被測試：
- * 「分數這樣的時候，該說什麼」是一個可以斷言的問題。
+ * ## 依「候選／已驗證」分流（ADR-0011）
+ *
+ * 零建檔啟動意味著大部分推薦的地點家長**沒聽過**，而對沒聽過的地名，
+ * 推播不可能「自成完整答案」——缺的那塊資訊不在系統裡。
+ *
+ * 所以兩種地點需要的理由根本不是同一種：
+ * - 已驗證 → 「為什麼是**今天**」
+ * - 候選　 → 「這是**什麼地方**」
  */
 
 import type { Child, Place, Visit } from "@/lib/db/schema";
-import { formatClock, overlaps, atClock, forecastPeak } from "./timeline";
-import { SCORING } from "./weights";
-import type { RecommendContext, ScoreBreakdown, TripTimeline } from "./types";
+import { AGE_BAND_LABELS } from "@/lib/domain/age-bands";
+import { CATEGORY_LABELS } from "@/lib/domain/category-priors";
+import { atClock, formatClock, forecastPeak, overlaps } from "./timeline";
+import type {
+  DriveEstimate,
+  RecommendContext,
+  ScoreBreakdown,
+  TripTimeline,
+} from "./types";
 
 /**
- * 一個因子要多好才值得拿出來講。
- *
- * 這些門檻與評分無關，只影響「說不說」。訂得太低的話每個地點都會列出六條理由，
- * 而六條理由等於沒有理由——使用者看不出這個地點和下一個的差別在哪。
+ * 一個因子要多好才值得拿出來講。訂太低的話每個地點都會列出七條理由，
+ * 而七條理由等於沒有理由——看不出這個地點和下一個的差別在哪。
  */
 export const REASON_THRESHOLDS = {
-  /** 作息契合度高到值得說「時間剛剛好」 */
   schedule: 0.8,
-  /** 年齡落在 sweet spot（滿分）才說，部分吻合不值得提 */
-  age: SCORING.age.inSweetSpot,
-  /** 天氣好到值得說 */
+  age: 0.8,
   weather: 0.75,
-  /** 久到值得說「很久沒去了」 */
   freshness: 0.9,
-  /** 近到值得說「很近」 */
   drive: 0.85,
-  /** 歷史成效好到值得說 */
   history: 0.75,
-  /** 一次最多列幾條理由。§10.1 的畫面只放得下這麼多。 */
   maxReasons: 3,
 } as const;
 
-/** 出遊後這段時間內的降雨機率若偏高，就提醒。單位小時。 */
 const RAIN_LOOKAHEAD_HOURS = 3;
-/** 降雨機率超過這個值（%）就值得提醒，但還沒到 Stage 1 剔除的門檻 */
 const RAIN_WARNING_PROBABILITY = 40;
-/** 體感溫度超過這個值（°C）就提醒補水防曬 */
 const HEAT_WARNING_TEMP = 31;
 
 export interface ExplainInput {
   place: Place;
-  /** 取自分數最低的那個小孩，與顯示的總分一致 */
   breakdown: ScoreBreakdown;
   /** 分數最低的那個小孩。理由若提到人，指的是他。 */
   weakestChild: Child;
+  weakestChildAgeMonths: number;
   context: RecommendContext;
   timeline: TripTimeline;
-  driveMinutes: number;
+  drive: DriveEstimate;
   visits: Visit[];
+  status: "candidate" | "verified";
 }
 
 export interface Explanation {
@@ -82,37 +82,54 @@ function daysSinceLastVisit(place: Place, visits: Visit[], now: Date): number | 
   return Math.round((midnight - Math.max(...dates)) / MS_PER_DAY);
 }
 
-/** 這趟行程是否與這個小孩的午睡窗重疊，以及重疊的是哪一段 */
-function napConflict(child: Child, timeline: TripTimeline, now: Date) {
-  return child.napWindows.find((w) =>
-    overlaps(timeline.departAt, timeline.homeAt, atClock(now, w.start), atClock(now, w.end)),
-  );
+/**
+ * 「這是什麼地方」——給沒去過的地點。
+ *
+ * 這些資料 §6.2 已經要求要有，那批新欄位本來就是在描述地點的性質。
+ * 它們原本只進評分，ADR-0011 讓它們也進理由。
+ */
+function describePlace(place: Place): string[] {
+  const out: string[] = [];
+
+  if (place.facilityAgeBands !== null && place.facilityAgeBands.length > 0) {
+    const bands = place.facilityAgeBands.map((b) => AGE_BAND_LABELS[b]).join("、");
+    out.push(`${CATEGORY_LABELS[place.category]}，遊具標示適合${bands}`);
+  } else if (place.runnableSpace >= 3) {
+    out.push(`${CATEGORY_LABELS[place.category]}，沒有遊具但空間大、可以自由跑`);
+  } else {
+    out.push(CATEGORY_LABELS[place.category]);
+  }
+
+  if (place.safetyEnclosure >= 3) out.push("空間封閉，跑不出去");
+  if (place.hasAirConditioning && place.indoorType === "indoor") out.push("室內有冷氣");
+  if (place.shadeLevel >= 2 && place.indoorType === "outdoor") out.push("樹蔭多");
+  if (place.parentEffort <= 2) out.push("大人不太累");
+  if (place.strollerFriendly) out.push("推車可進");
+
+  return out;
 }
 
-/**
- * 產生理由與警示。
- *
- * 純函式：同樣的輸入永遠得到同樣的句子。這一點不只是為了測試——
- * 使用者今天看到「接得上午睡」明天看到別的說法，會失去對系統的信任。
- */
 export function explain({
   place,
   breakdown,
   weakestChild,
   context,
   timeline,
-  driveMinutes,
+  drive,
   visits,
+  status,
 }: ExplainInput): Explanation {
   const reasons: string[] = [];
   const warnings: string[] = [];
-  const { timestamp: now } = context;
+  const now = context.timestamp;
 
-  // --- 理由 ----------------------------------------------------------------
-  // 順序即優先序：截斷時留下的是最上面幾條。
+  // --- 理由：順序即優先序，截斷時留下最上面幾條 ---------------------------
 
-  if (breakdown.schedule >= REASON_THRESHOLDS.schedule) {
-    // 有午睡的小孩，「接得上午睡」比「時段對」更具體也更有說服力。
+  if (status === "candidate") {
+    // 沒去過的地點，先回答「這是哪」。
+    // §7.5：未造訪過的地點需標示，且不給精確返家時間。
+    reasons.push(...describePlace(place));
+  } else if (breakdown.schedule >= REASON_THRESHOLDS.schedule) {
     reasons.push(
       weakestChild.napWindows.length > 0
         ? `現在出發，${formatClock(timeline.homeAt)} 前回到家，接得上午睡`
@@ -120,41 +137,41 @@ export function explain({
     );
   }
 
-  if (breakdown.age >= REASON_THRESHOLDS.age) {
-    reasons.push(`${weakestChild.name}現在的月齡正好適合`);
-  }
-
-  if (breakdown.weather >= REASON_THRESHOLDS.weather) {
-    reasons.push(place.indoor === "indoor" ? "室內，不受天氣影響" : "天氣適合出門");
-  }
-
-  if (breakdown.freshness >= REASON_THRESHOLDS.freshness) {
-    const days = daysSinceLastVisit(place, visits, now);
-    reasons.push(days === null ? "還沒去過" : `上次去已經是 ${days} 天前`);
+  if (status === "verified") {
+    if (breakdown.age >= REASON_THRESHOLDS.age) {
+      reasons.push(`${weakestChild.name}現在的月齡正好適合`);
+    }
+    if (breakdown.weather >= REASON_THRESHOLDS.weather) {
+      reasons.push(
+        place.indoorType === "indoor" ? "室內，不受天氣影響" : "天氣適合出門",
+      );
+    }
+    if (breakdown.freshness >= REASON_THRESHOLDS.freshness) {
+      const days = daysSinceLastVisit(place, visits, now);
+      reasons.push(days === null ? "還沒去過" : `上次去已經是 ${days} 天前`);
+    }
+    if (breakdown.history >= REASON_THRESHOLDS.history) {
+      reasons.push("前幾次去的結果都不錯");
+    }
   }
 
   if (breakdown.drive >= REASON_THRESHOLDS.drive) {
-    reasons.push(`車程只要 ${driveMinutes} 分`);
-  }
-
-  if (breakdown.history >= REASON_THRESHOLDS.history) {
-    reasons.push("前幾次去的結果都不錯");
+    reasons.push(`車程約 ${drive.outboundMinutes} 分`);
   }
 
   // --- 警示 ----------------------------------------------------------------
-  // 這些不影響排序，但影響使用者要不要照做。
 
-  // ADR-0004 的待辦：撞到午睡的地點會留在清單裡而不是被剔除，
-  // 那就**必須說出來**。使用者看到一個排名偏後的地點卻不知道為什麼，
-  // 比直接剔除還糟。
-  const conflict = napConflict(weakestChild, timeline, now);
+  // 撞到午睡的地點會留在清單裡而不是被剔除，那就**必須說出來**——
+  // 看到一個排名偏後的地點卻不知道為什麼，比直接剔除還糟。
+  const conflict = weakestChild.napWindows.find((w) =>
+    overlaps(timeline.departAt, timeline.homeAt, atClock(now, w.start), atClock(now, w.end)),
+  );
   if (conflict) {
     warnings.push(
       `這趟會撞到${weakestChild.name}的午睡（${conflict.start} 開始），${formatClock(timeline.homeAt)} 才到家`,
     );
   }
 
-  // 出遊結束後一段時間內的降雨。§6.5 的 weather.rainProbAfter(15) 就是這個意思。
   const after = new Date(timeline.homeAt.getTime() + RAIN_LOOKAHEAD_HOURS * 3600_000);
   const later = forecastPeak(context.weather, timeline.leaveAt, after);
   if (later && later.rainProbability >= RAIN_WARNING_PROBABILITY) {
@@ -162,8 +179,17 @@ export function explain({
   }
 
   const during = forecastPeak(context.weather, timeline.departAt, timeline.homeAt);
-  if (during && during.apparentTempC >= HEAT_WARNING_TEMP && place.indoor !== "indoor") {
+  if (
+    during &&
+    during.apparentTempC >= HEAT_WARNING_TEMP &&
+    place.indoorType !== "indoor"
+  ) {
     warnings.push(`體感 ${during.apparentTempC}°C，記得補水`);
+  }
+
+  // 沒去過的地點，停留時長只是類別先驗的估計值（§7.5）
+  if (status === "candidate") {
+    warnings.push("還沒去過，停留時間是估計值");
   }
 
   return { reasons: reasons.slice(0, REASON_THRESHOLDS.maxReasons), warnings };

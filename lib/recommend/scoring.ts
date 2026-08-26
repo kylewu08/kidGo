@@ -1,19 +1,18 @@
 /**
- * Stage 2 — 加權評分 0–100（設計架構書 §6.3）
+ * Stage 2 — 加權評分 0–100（設計架構書 v1.0 §7.2）
  *
- * 六個因子各自算出 0–1 的分數，再依 weights.ts 的權重加總乘以 100。
+ * 七個因子各自算出 0–1，再依 weights.ts 加權。
  *
- * **多小孩情境：對每個小孩獨立算分，取最低分而非平均。**
- * 這是刻意的保守設計——只要有一個小孩不適合，整趟就毀了（§6.3）。
- *
- * 所有調參常數來自 weights.ts，這裡不出現任何魔術數字。
+ * **多小孩：對每個小孩獨立算分，取最低分而非平均。**
+ * 刻意的保守設計——只要有一個不適合，整趟就毀了。
  */
 
-import type { Child, Place, Visit } from "@/lib/db/schema";
-import { ageInMonths } from "@/lib/schedule/napStage";
-import { DEFAULT_EXCLUDE_RECENT_DAYS } from "./thresholds";
+import type { CategoryPreference, Child, Place, Visit } from "@/lib/db/schema";
+import { facilityCoversAge } from "@/lib/domain/age-bands";
+import { THRESHOLDS } from "./thresholds";
 import { atClock, forecastPeak, overlaps, slotProximity } from "./timeline";
 import type {
+  DriveEstimate,
   RecommendContext,
   ScoreBreakdown,
   TripTimeline,
@@ -22,10 +21,8 @@ import type {
 import { SCORING, WEIGHTS } from "./weights";
 
 const clamp01 = (n: number) => Math.min(1, Math.max(0, n));
-
 const MS_PER_DAY = 86_400_000;
 
-/** 兩個 "YYYY-MM-DD" / Date 之間相差幾天（以日曆日計） */
 function daysBetween(from: string, to: Date): number {
   const [y, m, d] = from.split("-").map(Number);
   const fromMidnight = new Date(y, m - 1, d).getTime();
@@ -34,21 +31,13 @@ function daysBetween(from: string, to: Date): number {
 }
 
 // ---------------------------------------------------------------------------
-// 因子一：作息契合度 30% —— 依小孩而異
+// 一：作息契合度 25% —— 依小孩而異
 // ---------------------------------------------------------------------------
 
 /**
- * 兩件事各佔一半：現在這個時段適不適合去這裡，以及行程會不會撞到午睡。
+ * 兩件事各佔一半：現在這個時段適不適合，以及行程會不會撞到午睡。
  *
- * 時段配對用柔化邊界（slotProximity）而非硬性命中，理由見 timeline.ts。
- * 地點填了多個時段時取最接近的那一個。
- *
- * 設計架構書 §2 與 §6.2 對「撞到午睡」的歸屬有矛盾（一個說剔除、一個說評分）。
- * 已裁定依 §6.2 實作為**評分**：衝突時作息分數的一半歸零，總分扣 15 分，
- * 但地點不會從清單消失。完整理由見 docs/adr/0004-nap-conflict-scores-not-filters.md。
- *
- * ⚠️ ADR-0004 附帶一項待辦：既然這類地點會出現在清單裡，§6.5 的 reasons/warnings
- * 就必須包含「這趟會撞到午睡」，否則使用者不知道它為什麼排在後面。
+ * 午睡判斷用 timeline.homeAt，而那是用**回程**車程算的（§7.1）。
  */
 function scoreSchedule(
   place: Place,
@@ -56,21 +45,17 @@ function scoreSchedule(
   timeline: TripTimeline,
   now: Date,
 ): number {
-  const slotMatch = (() => {
-    if (place.bestTimeSlots.length === 0) {
-      return SCORING.schedule.unknownSlotsScore;
-    }
-    // 取最接近的那個時段。地點常常填兩個時段（例如清晨與午睡後），
-    // 只要貼近其中一個就算數。
-    return Math.max(
-      ...place.bestTimeSlots.map((slot) =>
-        slotProximity(timeline.departAt, slot, SCORING.schedule.softEdgeMinutes),
-      ),
-    );
-  })();
+  const slotMatch =
+    place.bestTimeSlots.length === 0
+      ? SCORING.schedule.unknownSlotsScore
+      : Math.max(
+          ...place.bestTimeSlots.map((slot) =>
+            slotProximity(timeline.departAt, slot, SCORING.schedule.softEdgeMinutes),
+          ),
+        );
 
   const napFit = (() => {
-    if (child.napWindows.length === 0) return 1; // no_nap 階段，無所謂
+    if (child.napWindows.length === 0) return 1; // 已無午睡
     const conflicts = child.napWindows.some((w) =>
       overlaps(
         timeline.departAt,
@@ -83,108 +68,156 @@ function scoreSchedule(
   })();
 
   return clamp01(
-    SCORING.schedule.slotMatchShare * slotMatch +
-      SCORING.schedule.napFitShare * napFit,
+    SCORING.schedule.slotMatchShare * slotMatch + SCORING.schedule.napFitShare * napFit,
   );
 }
 
 // ---------------------------------------------------------------------------
-// 因子二：年齡契合度 25% —— 依小孩而異
+// 二：年齡契合度 20% —— 依小孩而異
 // ---------------------------------------------------------------------------
 
 /**
- * 落在 sweetSpotAge 滿分；只落在 ageRange 則從 sweet spot 邊界向 ageRange 邊界
- * 線性遞減至 atRangeEdge。
+ * §7.2：「落在最適齡區間給滿分；**可奔跑空間可補償無適齡設施**」。
  *
- * 注意這個函式不假設 Stage 1 已經過濾過月齡——評分必須能獨立測試（§8.3）。
+ * 那句補償是 §6.2 整段論證的濃縮：美術館沒有遊具、放電強度低，
+ * 但對 20 個月幼兒是好選擇，因為可跑、家長不累、有冷氣、跑不掉。
+ * 只有「放電強度」的模型區分不出美術館與大型兒童樂園。
  */
-function scoreAge(place: Place, child: Child, now: Date): number {
-  const months = ageInMonths(child.birthDate, now);
-  const { ageRange, sweetSpotAge } = place;
+function scoreAge(place: Place, child: Child, months: number): number {
+  const hasFacility = place.facilityAgeBands !== null;
 
-  if (months < ageRange.minMonths || months > ageRange.maxMonths) return 0;
-  if (!sweetSpotAge) return SCORING.age.unknownSweetSpot;
-  if (months >= sweetSpotAge.minMonths && months <= sweetSpotAge.maxMonths) {
-    return SCORING.age.inSweetSpot;
+  if (hasFacility) {
+    return facilityCoversAge(place.facilityAgeBands, months)
+      ? SCORING.age.facilityMatches
+      : SCORING.age.facilityMismatch;
   }
 
-  const [distance, span] =
-    months < sweetSpotAge.minMonths
-      ? [sweetSpotAge.minMonths - months, sweetSpotAge.minMonths - ageRange.minMonths]
-      : [months - sweetSpotAge.maxMonths, ageRange.maxMonths - sweetSpotAge.maxMonths];
-
-  // span 為 0 表示 sweet spot 剛好貼齊 ageRange 邊界，此時只要不在 sweet spot
-  // 內就是邊緣，直接給邊緣分數。
-  const ratio = span > 0 ? clamp01(distance / span) : 1;
-  return clamp01(
-    SCORING.age.inSweetSpot -
-      ratio * (SCORING.age.inSweetSpot - SCORING.age.atRangeEdge),
-  );
+  // 無遊具設施：看可奔跑空間能不能替代
+  return place.runnableSpace >= THRESHOLDS.runnableSpaceCompensatesAge
+    ? SCORING.age.runnableCompensation
+    : SCORING.age.noFacilityNoSpace;
 }
 
 // ---------------------------------------------------------------------------
-// 因子三：天氣適配度 20% —— 全體共用
+// 三：天氣適配度 15% —— 全體共用
 // ---------------------------------------------------------------------------
 
-/**
- * 用一個 0–1 的「暴露程度」係數統一處理下雨、高溫與低溫，
- * 而不是為四種 IndoorType 寫四組分支。
- *
- * 三種懲罰取最差的那一個（不是相乘）：又下雨又太熱的日子不該被扣兩次，
- * 因為使用者的實際感受是「今天不適合出門」這一件事，不是兩件事。
- */
 function scoreWeather(
   place: Place,
   timeline: TripTimeline,
   forecast: WeatherForecast,
 ): number {
   const peak = forecastPeak(forecast, timeline.departAt, timeline.homeAt);
-  // 沒有預報資料時給中性分數。Stage 1 已針對純戶外地點發出警示，
-  // 這裡不再重複懲罰，也不假裝天氣很好。
+  // 沒有預報資料時給中性分數。Stage 1 已對純戶外地點發出警示，
+  // 這裡不重複懲罰，也不假裝天氣很好。
   if (peak === null) return 0.5;
 
-  const exposure = SCORING.weather.exposure[place.indoor];
-  const { comfortableMaxTempC, comfortableMinTempC, tempPenaltySpanC } =
-    SCORING.weather;
+  const w = SCORING.weather;
+  const exposure = w.exposure[place.indoorType];
 
   const rainScore = 1 - exposure * (peak.rainProbability / 100);
 
-  // 遮蔽只補償高溫，不補償下雨也不補償低溫——樹蔭擋不住雨，也不會讓人變暖。
-  const shadeCompensation =
-    (place.shadeLevel / 3) * SCORING.weather.maxShadeCompensation;
-  const heatExposure = exposure * (1 - shadeCompensation);
-  const heatExcess = Math.max(0, peak.apparentTempC - comfortableMaxTempC);
-  const heatScore = 1 - clamp01(heatExcess / tempPenaltySpanC) * heatExposure;
+  // 遮蔭只補償高溫，不補償下雨也不補償低溫——樹蔭擋不住雨，也不會讓人變暖。
+  const shadeCompensation = (place.shadeLevel / 3) * w.maxShadeCompensation;
+  const heatExcess = Math.max(0, peak.apparentTempC - w.comfortableMaxTempC);
+  const heatScore =
+    1 - clamp01(heatExcess / w.tempPenaltySpanC) * exposure * (1 - shadeCompensation);
 
-  const coldDeficit = Math.max(0, comfortableMinTempC - peak.apparentTempC);
-  const coldScore = 1 - clamp01(coldDeficit / tempPenaltySpanC) * exposure;
+  const coldDeficit = Math.max(0, w.comfortableMinTempC - peak.apparentTempC);
+  const coldScore = 1 - clamp01(coldDeficit / w.tempPenaltySpanC) * exposure;
 
+  // 三種懲罰取最差的，不相乘：使用者的實際感受是「今天不適合出門」這一件事，
+  // 不是兩件事。
   const base = Math.min(rainScore, heatScore, coldScore);
 
-  // 「晴天戶外加分」（§6.3）。只在三個條件都舒適時才給，
-  // 而且加分與暴露程度成正比——好天氣對室內地點沒有意義。
   const isPleasant =
-    peak.rainProbability <= SCORING.weather.sunnyMaxRainProbability &&
+    peak.rainProbability <= w.sunnyMaxRainProbability &&
     heatExcess === 0 &&
     coldDeficit === 0;
-  const bonus = isPleasant ? SCORING.weather.sunnyOutdoorBonus * exposure : 0;
 
-  // 基礎分壓縮到 [0, 1 - 加分上限]，把最上面那一段留給晴天加分。
-  //
-  // 不這樣做的話，好天氣時室內與戶外都會撞到 1.0 的天花板，加分等於沒作用——
-  // 這是測試「天氣好時戶外地點的分數高於室內地點」抓出來的。
-  //
-  // 副作用是室內地點的天氣分數永遠到不了 1.0，而這是對的：
-  // 下雨天待在室內是止損，不是一個和晴天出門一樣好的選擇。
-  const headroom = 1 - SCORING.weather.sunnyOutdoorBonus;
+  // 「晴天戶外加分」與「高溫時有冷氣加分」是同一個位置的兩種情況
+  const bonus = isPleasant
+    ? w.sunnyOutdoorBonus * exposure
+    : heatExcess > 0 && place.hasAirConditioning
+      ? w.airConditioningBonus
+      : 0;
+
+  // 基礎分壓縮到 [0, 1 − 加分上限]，把最上面那段留給加分。
+  // 不這樣做的話好天氣時室內外都會撞到 1.0，加分等於沒有作用。
+  const headroom = 1 - Math.max(w.sunnyOutdoorBonus, w.airConditioningBonus);
   return clamp01(base * headroom + bonus);
 }
 
 // ---------------------------------------------------------------------------
-// 因子四：新鮮度 10% —— 全體共用
+// 四：家庭偏好 15% —— 全體共用，且可被整個抑制
 // ---------------------------------------------------------------------------
 
-/** 距上次造訪越久越高；excludeRecentDays 內大幅降權（§6.3） */
+/**
+ * 小孩約束決定「哪些不可能」，家庭偏好決定「哪些你們真的會去」（§6.3）。
+ *
+ * `suppressed` 為真時回傳中性分數——這是 §7.4 的防線一。
+ * **偏好只能調整排序，永遠不能覆蓋硬過濾。**
+ */
+function scoreFamilyPreference(
+  place: Place,
+  context: RecommendContext,
+  suppressed: boolean,
+): number {
+  const p = SCORING.familyPreference;
+  if (suppressed) return p.neutralScore;
+
+  const pref = context.categoryPreferences.find((c) => c.category === place.category);
+
+  // 手動覆寫優先於學習值，且學習不再更新它（§6.3）。
+  // 樣本不足時不套用學習權重——那是雜訊，不是偏好。
+  const weight =
+    pref?.manualWeight ??
+    (pref && pref.sampleCount >= p.minSampleCount ? pref.learnedWeight : 0);
+
+  const exposure = SCORING.weather.exposure[place.indoorType];
+  // outdoorTendency 是 −2…+2，換算成 −1…+1 後與地點的戶外程度相乘
+  const tendency = context.familyPreference.outdoorTendency / 2;
+  const outdoorMatch = tendency * (exposure * 2 - 1);
+
+  // 家長負擔已在 Stage 1 擋掉超標的，但接近上限仍略微扣分
+  const effortHeadroom =
+    context.familyPreference.maxParentEffort - place.parentEffort;
+  const effortPenalty =
+    effortHeadroom < p.parentEffortSlack ? 0.1 * (p.parentEffortSlack - effortHeadroom) : 0;
+
+  return clamp01(
+    p.neutralScore +
+      p.categoryInfluence * weight +
+      p.outdoorInfluence * outdoorMatch -
+      effortPenalty,
+  );
+}
+
+/**
+ * §7.4 防線一：偏好權重在受限情境下歸零。
+ *
+ * 偏好學習會持續壓低不偏好的類別，使得雨天——正是最需要室內選項的時刻——
+ * 系統手上只剩品質最差、從未驗證的牌。**偏好學習的失效點，
+ * 恰好落在產品最該發揮價值的情境。**
+ */
+export function shouldSuppressPreference(
+  context: RecommendContext,
+  survivorCount: number,
+  peak: { rainProbability: number; apparentTempC: number } | null,
+): boolean {
+  const s = SCORING.preferenceSuppression;
+  if (survivorCount < s.survivorsFewerThan) return true;
+  if (peak === null) return false;
+  return (
+    peak.rainProbability >= s.rainProbabilityAtLeast ||
+    peak.apparentTempC >= s.apparentTempAtLeast
+  );
+}
+
+// ---------------------------------------------------------------------------
+// 五：新鮮度 10% —— 全體共用
+// ---------------------------------------------------------------------------
+
 function scoreFreshness(
   place: Place,
   visits: Visit[],
@@ -192,70 +225,73 @@ function scoreFreshness(
   excludeRecentDays: number,
 ): number {
   const placeVisits = visits.filter((v) => v.placeId === place.id);
-  if (placeVisits.length === 0) return 1; // 沒去過就是最新鮮的
+  if (placeVisits.length === 0) return 1;
 
   const daysSince = Math.min(...placeVisits.map((v) => daysBetween(v.date, now)));
   const { recentVisitCeiling, fullRecoveryDays } = SCORING.freshness;
 
   if (daysSince < excludeRecentDays) {
-    // 剛去過 → 接近 0；剛好滿 excludeRecentDays → recentVisitCeiling
     return clamp01((daysSince / excludeRecentDays) * recentVisitCeiling);
   }
-
   const recovery = clamp01((daysSince - excludeRecentDays) / fullRecoveryDays);
   return clamp01(recentVisitCeiling + (1 - recentVisitCeiling) * recovery);
 }
 
 // ---------------------------------------------------------------------------
-// 因子五：車程成本 10% —— 全體共用
+// 六：車程成本 10% —— 全體共用，含壅塞的超線性懲罰
 // ---------------------------------------------------------------------------
 
 /**
- * 非線性：30 分鐘內差異不大，超過後急降（§6.3）。
+ * 非線性：短程差異不大，超過門檻後急降。**壅塞另計超線性懲罰**（§7.2）。
  *
- * 用指數衰減而非線性：40 分鐘和 30 分鐘的差別，遠小於 70 分鐘和 60 分鐘的差別——
- * 後者已經進入「小孩在車上就先睡著或先崩潰」的區間。
+ * 塞車的成本不只是時間。在國道塞 40 分鐘與在一般道路開 40 分鐘，
+ * 對小孩是完全不同的事——前者伴隨額外的車上崩潰風險。
  */
-function scoreDrive(minutes: number): number {
-  const { freeMinutes, scoreAtFreeBoundary, decayMinutes } = SCORING.drive;
+function scoreDrive(drive: DriveEstimate): number {
+  const d = SCORING.drive;
+  // 用去回程的平均：兩段都要坐在車上
+  const minutes = (drive.outboundMinutes + drive.returnMinutes) / 2;
 
-  if (minutes <= freeMinutes) {
-    return clamp01(1 - (minutes / freeMinutes) * (1 - scoreAtFreeBoundary));
-  }
-  return clamp01(
-    scoreAtFreeBoundary * Math.exp(-(minutes - freeMinutes) / decayMinutes),
-  );
+  const base =
+    minutes <= d.freeMinutes
+      ? 1 - (minutes / d.freeMinutes) * (1 - d.scoreAtFreeBoundary)
+      : d.scoreAtFreeBoundary * Math.exp(-(minutes - d.freeMinutes) / d.decayMinutes);
+
+  // 壅塞比值只在精算時才有意義——粗估的去回程就是基準值本身。
+  if (drive.source !== "precise" || drive.baselineMinutes <= 0) return clamp01(base);
+
+  const ratio = minutes / drive.baselineMinutes;
+  if (ratio <= d.congestionOnsetRatio) return clamp01(base);
+
+  const excess = ratio - d.congestionOnsetRatio;
+  const penalty = d.congestionPenaltyPerUnit * excess ** d.congestionExponent;
+  return clamp01(base - penalty);
 }
 
 // ---------------------------------------------------------------------------
-// 因子六：歷史成效 5% —— 全體共用
+// 七：歷史成效 5% —— 全體共用
 // ---------------------------------------------------------------------------
 
 /**
- * `Visit.outcome` 平均，`meltdown` 為負向（§6.3）。
+ * 過往回饋；「崩潰」為負向（§7.2）。
  *
- * 這個因子只佔 5%，**紀錄筆數少於 20 筆前不得調高**（§2）。
- * 三筆紀錄算不出可信平均值，過度加權只會產生雜訊。
+ * **只佔 5%**，而且紀錄筆數少的階段不得調高（§3）。
  */
 function scoreHistory(place: Place, visits: Visit[]): number {
   const placeVisits = visits.filter((v) => v.placeId === place.id);
   if (placeVisits.length === 0) return SCORING.history.noVisitsScore;
 
-  const avgOutcome =
-    placeVisits.reduce((sum, v) => sum + v.outcome, 0) / placeVisits.length;
-  const meltdownRate =
-    placeVisits.filter((v) => v.meltdown).length / placeVisits.length;
-
-  // outcome 是 1–5，映射到 0–1
-  const base = (avgOutcome - 1) / 4;
-  return clamp01(base - meltdownRate * SCORING.history.meltdownPenalty);
+  const total = placeVisits.reduce(
+    (sum, v) => sum + SCORING.history.outcomeScore[v.outcome],
+    0,
+  );
+  return clamp01(total / placeVisits.length);
 }
 
 // ---------------------------------------------------------------------------
 // 組合
 // ---------------------------------------------------------------------------
 
-/** 六個因子的原始分數 → 0–100 的總分 */
 export function totalScore(breakdown: ScoreBreakdown): number {
   const sum = (Object.keys(WEIGHTS) as (keyof typeof WEIGHTS)[]).reduce(
     (acc, factor) => acc + WEIGHTS[factor] * breakdown[factor],
@@ -264,25 +300,26 @@ export function totalScore(breakdown: ScoreBreakdown): number {
   return sum * 100;
 }
 
-/** 針對單一小孩計算六個因子。共用因子每個小孩都一樣，依小孩而異的只有前兩項。 */
 export function breakdownForChild(
   place: Place,
   child: Child,
+  ageMonths: number,
   visits: Visit[],
   context: RecommendContext,
   timeline: TripTimeline,
-  /** 這次採用的車程。由 index.ts 算好傳入，避免每個因子各自重算。 */
-  driveMinutes: number,
+  drive: DriveEstimate,
+  preferenceSuppressed: boolean,
 ): ScoreBreakdown {
   const excludeRecentDays =
-    context.excludeRecentDays ?? DEFAULT_EXCLUDE_RECENT_DAYS;
+    context.excludeRecentDays ?? THRESHOLDS.defaultExcludeRecentDays;
 
   return {
     schedule: scoreSchedule(place, child, timeline, context.timestamp),
-    age: scoreAge(place, child, context.timestamp),
+    age: scoreAge(place, child, ageMonths),
     weather: scoreWeather(place, timeline, context.weather),
+    familyPreference: scoreFamilyPreference(place, context, preferenceSuppressed),
     freshness: scoreFreshness(place, visits, context.timestamp, excludeRecentDays),
-    drive: scoreDrive(driveMinutes),
+    drive: scoreDrive(drive),
     history: scoreHistory(place, visits),
   };
 }
@@ -291,8 +328,11 @@ export const __testing = {
   scoreSchedule,
   scoreAge,
   scoreWeather,
+  scoreFamilyPreference,
   scoreFreshness,
   scoreDrive,
   scoreHistory,
   daysBetween,
 };
+
+export type { CategoryPreference };

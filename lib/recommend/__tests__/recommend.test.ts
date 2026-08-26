@@ -1,176 +1,266 @@
 /**
- * Stage 1 + Stage 2 串起來之後的行為（設計架構書 §6、§8.3）
+ * 三個階段串起來之後的行為，以及 §13.3 點名的必要測試案例。
  *
- * 個別因子的規格在 scoring.test.ts，這裡測的是組合出來的性質：
- * 排序、多小孩取最低分，以及 §8.3 要求的純函式性質。
+ * 個別因子的規格在 scoring.test.ts、過濾在 filters.test.ts、
+ * 多樣性在 diversity.test.ts。這裡測的是組合出來的性質。
  */
 
 import { describe, expect, it } from "vitest";
 
 import { recommend } from "../index";
+import { WEIGHTS } from "../weights";
 import {
   SATURDAY_9AM,
+  makeCategoryPreference,
   makeChild,
   makeContext,
+  makeFamilyPreference,
   makeForecast,
   makePlace,
   makeVisit,
 } from "./fixtures";
 
-describe("排序與過濾", () => {
-  it("結果依分數由高到低排序", () => {
-    const places = [
-      makePlace({ id: "far", driveMinutes: 40 }),
-      makePlace({ id: "near", driveMinutes: 5 }),
-      makePlace({ id: "mid", driveMinutes: 20 }),
-    ];
-    const result = recommend(places, [], makeContext());
-    expect(result.map((r) => r.place.id)).toEqual(["near", "mid", "far"]);
+/** 一組性質不同的地點，讓 Stage 3 有東西可挑 */
+function mixedPlaces() {
+  return [
+    makePlace({ id: "park", category: "park", indoorType: "outdoor", shadeLevel: 2, parentEffort: 2 }),
+    makePlace({
+      id: "museum", category: "museum", indoorType: "indoor",
+      facilityAgeBands: null, runnableSpace: 3, parentEffort: 1,
+      hasAirConditioning: true, safetyEnclosure: 3,
+    }),
+    makePlace({
+      id: "library", category: "library", indoorType: "indoor",
+      facilityAgeBands: null, runnableSpace: 1, parentEffort: 1,
+      hasAirConditioning: true, safetyEnclosure: 3, typicalDurationMinutes: 60,
+    }),
+  ];
+}
+
+describe("§13.3：雨天", () => {
+  const rainy = makeContext({ weather: makeForecast({ rainProbability: 80 }) });
+
+  it("戶外全滅", () => {
+    const result = recommend(mixedPlaces(), [], rainy);
+    expect(result.scored.map((r) => r.place.id)).not.toContain("park");
+    expect(result.rejected.find((r) => r.place.id === "park")?.rejectedBy).toBe("rain");
   });
 
-  it("Stage 1 剔除的地點完全不出現在結果裡", () => {
-    const places = [
-      makePlace({ id: "ok" }),
-      makePlace({ id: "too-far", driveMinutes: 999 }),
-    ];
-    const result = recommend(places, [], makeContext());
-    expect(result.map((r) => r.place.id)).toEqual(["ok"]);
+  it("偏好權重歸零（§7.4 防線一）", () => {
+    const result = recommend(mixedPlaces(), [], rainy);
+    expect(result.preferenceSuppressed).toBe(true);
   });
 
-  it("Stage 1 的警示會帶到評分結果上", () => {
-    const result = recommend([makePlace({ needsReservation: true })], [], makeContext());
-    expect(result[0].warnings.join()).toContain("需要預約");
-  });
+  it("室內選項以原始分數公平競爭——偏好不能覆蓋硬過濾", () => {
+    // 偏好戶外的家庭，在雨天仍應拿到室內的建議，
+    // 而且室內地點之間不因偏好而被扭曲。
+    const outdoorLover = {
+      ...rainy,
+      familyPreference: makeFamilyPreference({ outdoorTendency: 2 }),
+      categoryPreferences: [
+        makeCategoryPreference({ category: "museum", learnedWeight: -0.9, sampleCount: 30 }),
+      ],
+    };
+    const result = recommend(mixedPlaces(), [], outdoorLover);
 
-  it("所有地點都被剔除時回傳空陣列，不是丟例外", () => {
-    // UI 需要能顯示「今天沒有適合的地點」，那是一個正常結果不是錯誤。
-    const result = recommend(
-      [makePlace({ driveMinutes: 999 })],
-      [],
-      makeContext(),
-    );
-    expect(result).toEqual([]);
-  });
-
-  it("分數落在 0 到 100 之間", () => {
-    const result = recommend([makePlace()], [], makeContext());
-    expect(result[0].score).toBeGreaterThanOrEqual(0);
-    expect(result[0].score).toBeLessThanOrEqual(100);
+    expect(result.slots.length).toBeGreaterThan(0);
+    // 被長期壓低的 museum 仍然拿得到中性的偏好分數
+    const museum = result.scored.find((r) => r.place.id === "museum");
+    expect(museum?.scoreBreakdown.familyPreference).toBe(0.5);
   });
 });
 
-describe("多小孩：取最低分而非平均", () => {
-  /** 老大 5 歲（超出 sweet spot），老二 22 個月（正中 sweet spot） */
+describe("§13.3：無存活地點時產出「今天不要出門」", () => {
+  it("大雨時給出可執行的說明，而不是沉默", () => {
+    // §9.1：推播不得沉默，也不得降低標準硬推。
+    const result = recommend(
+      [makePlace({ indoorType: "outdoor" })],
+      [],
+      makeContext({ weather: makeForecast({ rainProbability: 90, apparentTempC: 28 }) }),
+    );
+    expect(result.slots).toEqual([]);
+    expect(result.noOutingReason).toMatch(/建議在家/);
+    expect(result.noOutingReason).toMatch(/降雨機率 90%/);
+  });
+
+  it("時間不夠時的說明與天氣不同", () => {
+    const result = recommend(
+      [makePlace({ typicalDurationMinutes: 300 })],
+      [],
+      makeContext({ availableWindow: { start: "09:00", end: "10:00" } }),
+    );
+    expect(result.noOutingReason).toMatch(/時間不夠/);
+  });
+
+  it("有地點時 noOutingReason 為 null", () => {
+    expect(recommend(mixedPlaces(), [], makeContext()).noOutingReason).toBeNull();
+  });
+});
+
+describe("§13.3：多小孩取最低分而非平均", () => {
   const twoChildren = [
-    makeChild({ id: "big", birthDate: "2021-08-22" }),
-    makeChild({ id: "small", birthDate: "2024-10-22" }),
+    makeChild({ id: "big", name: "老大", birthDate: "2020-08-29" }), // 72 個月
+    makeChild({ id: "small", name: "老二", birthDate: "2025-08-29" }), // 12 個月
   ];
 
-  it("地點的總分等於分數最低的那個小孩的分數", () => {
-    // 設計架構書 §6.3：只要有一個不適合，整趟就毀了。這是刻意的保守設計。
+  it("總分等於分數最低的那個小孩", () => {
     const [result] = recommend(
-      [makePlace({ sweetSpotAge: { minMonths: 18, maxMonths: 30 } })],
+      [makePlace({ facilityAgeBands: ["toddler"] })],
       [],
       makeContext({ children: twoChildren }),
-    );
-
-    const lowest = Math.min(...result.perChildScores.map((p) => p.score));
-    expect(result.score).toBe(lowest);
+    ).scored;
+    expect(result.score).toBe(Math.min(...result.perChildScores.map((p) => p.score)));
   });
 
-  it("總分嚴格低於兩個小孩的平均——證明沒有偷偷用平均", () => {
+  it("總分嚴格低於平均——證明沒有偷偷用平均", () => {
     const [result] = recommend(
-      [makePlace({ sweetSpotAge: { minMonths: 18, maxMonths: 30 } })],
+      [makePlace({ facilityAgeBands: ["toddler"] })],
       [],
       makeContext({ children: twoChildren }),
-    );
-
+    ).scored;
     const scores = result.perChildScores.map((p) => p.score);
     const average = scores.reduce((a, b) => a + b, 0) / scores.length;
-    expect(scores[0]).not.toBe(scores[1]); // 前提：兩個小孩分數確實不同
+    expect(scores[0]).not.toBe(scores[1]);
     expect(result.score).toBeLessThan(average);
   });
+});
 
-  it("scoreBreakdown 來自分數最低的那個小孩，解釋得了旁邊的總分", () => {
-    // breakdown 是除錯用的（§6.5）。若它取自別的小孩，
-    // 開發模式下看到的六個數字就無法還原出顯示的總分，那比不顯示還糟。
-    const [result] = recommend(
-      [makePlace({ sweetSpotAge: { minMonths: 18, maxMonths: 30 } })],
+describe("§13.3：連假", () => {
+  it("係數正確套用——同一個地點在連假的車程估計更長", () => {
+    const far = makePlace({ id: "far", lat: 25.15, lng: 121.62, usesFreeway: true });
+    const weekend = recommend([far], [], makeContext({ dayType: "weekend", maxDriveMinutes: 200 }));
+    const holiday = recommend([far], [], makeContext({ dayType: "long_weekend", maxDriveMinutes: 200 }));
+
+    expect(holiday.scored[0].drive.outboundMinutes).toBeGreaterThan(
+      weekend.scored[0].drive.outboundMinutes * 1.4,
+    );
+  });
+
+  it("不走國道的地點幾乎不受連假影響（§11.2）", () => {
+    const local = makePlace({ id: "local", usesFreeway: false });
+    const weekend = recommend([local], [], makeContext({ dayType: "weekend" }));
+    const holiday = recommend([local], [], makeContext({ dayType: "long_weekend" }));
+
+    const ratio =
+      holiday.scored[0].drive.outboundMinutes / weekend.scored[0].drive.outboundMinutes;
+    expect(ratio).toBeLessThan(1.2);
+  });
+
+  it("回程獨立計算——精算時去回程可以不同", () => {
+    const result = recommend(
+      [makePlace({ id: "p" })],
       [],
-      makeContext({ children: twoChildren }),
+      makeContext({
+        preciseDrive: new Map([["p", { outboundMinutes: 20, returnMinutes: 55 }]]),
+      }),
     );
-
-    const weights = { schedule: 0.3, age: 0.25, weather: 0.2, freshness: 0.1, drive: 0.1, history: 0.05 };
-    const rebuilt =
-      Object.entries(weights).reduce(
-        (sum, [factor, w]) =>
-          sum + w * result.scoreBreakdown[factor as keyof typeof weights],
-        0,
-      ) * 100;
-    expect(rebuilt).toBeCloseTo(result.score, 10);
-  });
-
-  it("每個小孩都拿到自己的一份分數", () => {
-    const [result] = recommend([makePlace()], [], makeContext({ children: twoChildren }));
-    expect(result.perChildScores.map((p) => p.childId).sort()).toEqual(["big", "small"]);
+    expect(result.scored[0].drive.outboundMinutes).toBe(20);
+    expect(result.scored[0].drive.returnMinutes).toBe(55);
   });
 });
 
-describe("紀錄的影響", () => {
-  it("最近去過的地點排在同等條件的新地點後面", () => {
-    // 設計架構書 §6.3 的新鮮度因子。
-    const places = [
-      makePlace({ id: "just-went" }),
-      makePlace({ id: "never-been" }),
-    ];
-    const visits = [makeVisit({ placeId: "just-went", date: "2026-08-20" })];
-
-    const result = recommend(places, visits, makeContext());
-    expect(result[0].place.id).toBe("never-been");
+describe("§13.3：路況 API 失敗", () => {
+  it("完全沒有精算資料時降級為估算，流程不中斷", () => {
+    const result = recommend(mixedPlaces(), [], makeContext({ preciseDrive: undefined }));
+    expect(result.scored.length).toBeGreaterThan(0);
+    expect(result.scored.every((r) => r.drive.source === "coarse")).toBe(true);
   });
 
-  it("excludeRecentDays 可以調整「最近」的定義", () => {
-    const places = [makePlace({ id: "a" })];
-    const visits = [makeVisit({ placeId: "a", date: "2026-07-23" })]; // 30 天前
-
-    const strict = recommend(places, visits, makeContext({ excludeRecentDays: 60 }));
-    const lenient = recommend(places, visits, makeContext({ excludeRecentDays: 7 }));
-    expect(strict[0].score).toBeLessThan(lenient[0].score);
+  it("信心度有被標記，而且明示在警示裡（§10.3.5）", () => {
+    // 不得靜默使用低信心估值。
+    const [first] = recommend(mixedPlaces(), [], makeContext()).scored;
+    expect(first.drive.source).toBe("coarse");
+    expect(first.warnings.join()).toContain("路況資料暫時無法取得");
   });
 
-  it("歷史紀錄再差，也翻不了盤超過 5 分", () => {
-    // 設計架構書 §2：歷史成效刻意只給 5%，避免三筆紀錄產生的雜訊主導排序。
-    // 這裡用同一個地點的兩種紀錄比較，把新鮮度的影響固定住。
-    const place = makePlace({ id: "a" });
-    const sameDate = "2026-05-01";
-
-    const great = recommend([place], [
-      makeVisit({ id: "g", placeId: "a", date: sameDate, outcome: 5, meltdown: false }),
-    ], makeContext());
-    const awful = recommend([place], [
-      makeVisit({ id: "b", placeId: "a", date: sameDate, outcome: 1, meltdown: true }),
-    ], makeContext());
-
-    expect(great[0].score - awful[0].score).toBeLessThanOrEqual(5);
-    expect(great[0].score).toBeGreaterThan(awful[0].score);
+  it("只有部分地點查得到精算時，其餘各自降級", () => {
+    const context = makeContext({
+      preciseDrive: new Map([["park", { outboundMinutes: 18, returnMinutes: 22 }]]),
+    });
+    const byId = new Map(
+      recommend(mixedPlaces(), [], context).scored.map((r) => [r.place.id, r]),
+    );
+    expect(byId.get("park")!.drive.source).toBe("precise");
+    expect(byId.get("museum")!.drive.source).toBe("coarse");
   });
 });
 
-describe("純函式性質（§8.3）", () => {
+describe("§13.3：一次性情境（§8）", () => {
+  it("覆寫僅影響本次，不寫入家庭偏好", () => {
+    const base = makeContext({
+      familyPreference: makeFamilyPreference({ maxParentEffort: 2 }),
+    });
+    const withGrandma = { ...base, contextOverride: { maxParentEffort: 5 as const } };
+    const hard = makePlace({ id: "hard", parentEffort: 5 });
+
+    expect(recommend([hard], [], base).scored).toHaveLength(0);
+    expect(recommend([hard], [], withGrandma).scored).toHaveLength(1);
+    // 原本的 context 沒有被改動
+    expect(base.familyPreference.maxParentEffort).toBe(2);
+  });
+
+  it("無法解析時（沒有覆寫）流程照常完成", () => {
+    // §8.5：不得中斷流程。
+    const result = recommend(mixedPlaces(), [], makeContext({ contextOverride: undefined }));
+    expect(result.scored.length).toBeGreaterThan(0);
+  });
+});
+
+describe("§13.3：歷史成效權重不超過 5%", () => {
+  it("同一地點的紀錄好壞，最多只能改變 5 分", () => {
+    const place = makePlace({ id: "p" });
+    const date = "2026-05-01";
+    const good = recommend([place], [makeVisit({ id: "g", placeId: "p", date, outcome: "smooth" })], makeContext());
+    const bad = recommend([place], [makeVisit({ id: "b", placeId: "p", date, outcome: "meltdown" })], makeContext());
+
+    const delta = good.scored[0].score - bad.scored[0].score;
+    expect(delta).toBeGreaterThan(0);
+    expect(delta).toBeLessThanOrEqual(WEIGHTS.history * 100);
+  });
+});
+
+describe("候選與已驗證的分流（§7.5、ADR-0011）", () => {
+  it("沒去過的地點標為候選，且不給精確返家時間", () => {
+    // §7.5：其停留時長僅為估計值。
+    const [result] = recommend([makePlace()], [], makeContext()).scored;
+    expect(result.status).toBe("candidate");
+    expect(result.suggestedReturn).toBeNull();
+    expect(result.warnings.join()).toContain("估計值");
+  });
+
+  it("去過的地點標為已驗證，並給出返家時間", () => {
+    const [result] = recommend(
+      [makePlace({ id: "p" })],
+      [makeVisit({ placeId: "p" })],
+      makeContext(),
+    ).scored;
+    expect(result.status).toBe("verified");
+    expect(result.suggestedReturn).toMatch(/^\d{2}:\d{2}$/);
+  });
+
+  it("候選地點的理由回答「這是什麼」，已驗證的回答「為什麼今天」", () => {
+    const place = makePlace({ id: "p", facilityAgeBands: ["toddler"] });
+    const candidate = recommend([place], [], makeContext()).scored[0];
+    const verified = recommend([place], [makeVisit({ placeId: "p" })], makeContext()).scored[0];
+
+    expect(candidate.reasons.join()).toMatch(/遊具標示適合/);
+    expect(verified.reasons.join()).toMatch(/回到家|月齡|天氣|天前/);
+  });
+});
+
+describe("純函式性質（§7.6）", () => {
   it("同樣的輸入永遠得到同樣的輸出", () => {
-    const places = [makePlace({ id: "a" }), makePlace({ id: "b", driveMinutes: 25 })];
-    const visits = [makeVisit({ placeId: "a" })];
-    const first = recommend(places, visits, makeContext());
-    const second = recommend(places, visits, makeContext());
-
-    expect(first.map((r) => [r.place.id, r.score])).toEqual(
-      second.map((r) => [r.place.id, r.score]),
+    const places = mixedPlaces();
+    const first = recommend(places, [], makeContext());
+    const second = recommend(places, [], makeContext());
+    expect(first.scored.map((r) => [r.place.id, r.score])).toEqual(
+      second.scored.map((r) => [r.place.id, r.score]),
     );
   });
 
-  it("不修改傳入的 places 與 visits", () => {
-    const places = [makePlace({ id: "a" })];
-    const visits = [makeVisit({ placeId: "a" })];
+  it("不修改傳入的資料", () => {
+    const places = mixedPlaces();
+    const visits = [makeVisit({ placeId: "park" })];
     const placesSnapshot = structuredClone(places);
     const visitsSnapshot = structuredClone(visits);
 
@@ -180,233 +270,53 @@ describe("純函式性質（§8.3）", () => {
     expect(visits).toEqual(visitsSnapshot);
   });
 
-  it("時間由 context.timestamp 決定，不是由系統時鐘決定", () => {
-    // 若函式內部偷偷呼叫 new Date()，這個測試會在午睡窗那一項失守。
-    const place = makePlace({ typicalDurationMin: 120 });
-    const morning = recommend([place], [], makeContext({
-      timestamp: SATURDAY_9AM,
-      availableWindow: { start: "09:00", end: "18:00" },
-    }));
+  it("時間由 context.timestamp 決定，不是系統時鐘", () => {
+    const place = makePlace({ typicalDurationMinutes: 120 });
+    const morning = recommend([place], [], makeContext({ timestamp: SATURDAY_9AM }));
     const nearNap = recommend([place], [], makeContext({
-      timestamp: new Date(2026, 7, 22, 11, 30),
+      timestamp: new Date(2026, 7, 29, 11, 30),
       availableWindow: { start: "11:30", end: "18:00" },
     }));
-
-    // 11:30 出發會撞上 12:30 的午睡，09:00 出發不會。
-    expect(nearNap[0].score).toBeLessThan(morning[0].score);
+    expect(nearNap.scored[0].score).toBeLessThan(morning.scored[0].score);
   });
 
-  it("沒有傳入任何小孩時直接丟例外，不安靜地回傳可疑結果", () => {
+  it("沒有小孩時直接丟例外", () => {
     expect(() => recommend([makePlace()], [], makeContext({ children: [] }))).toThrow(
       /至少一個 Child/,
     );
   });
 });
 
-describe("一個貼近真實的情境", () => {
-  it("下大雨的週六早上，室內遊樂場排在公園前面", () => {
-    const places = [
-      makePlace({
-        id: "park",
-        name: "公園",
-        indoor: "outdoor",
-        bestTimeSlots: ["morning"],
-      }),
-      makePlace({
-        id: "indoor-playground",
-        name: "室內遊樂場",
-        category: "indoor_playground",
-        indoor: "indoor",
-        bestTimeSlots: ["morning"],
-        driveMinutes: 20,
-      }),
-    ];
-
-    const result = recommend(places, [], makeContext({
-      weather: makeForecast({ rainProbability: 80, condition: "陰時多雲短暫陣雨" }),
-    }));
-
-    // 公園被 Stage 1 直接剔除（降雨 > 60% 且純戶外），連評分都不用。
-    expect(result.map((r) => r.place.id)).toEqual(["indoor-playground"]);
+describe("輸出形狀", () => {
+  it("slots 最多三項且各有角色", () => {
+    const result = recommend(mixedPlaces(), [], makeContext());
+    expect(result.slots.length).toBeLessThanOrEqual(3);
+    expect(result.slots.map((s) => s.slot)).toEqual(
+      expect.arrayContaining(["primary"]),
+    );
   });
 
-  it("天氣好的週六早上，公園排在室內遊樂場前面", () => {
-    const places = [
-      makePlace({ id: "park", indoor: "outdoor", bestTimeSlots: ["morning"], shadeLevel: 2 }),
-      makePlace({
-        id: "indoor-playground",
-        indoor: "indoor",
-        bestTimeSlots: ["morning"],
-        driveMinutes: 15,
-      }),
-    ];
+  it("scored 依分數由高到低排序", () => {
+    const scores = recommend(mixedPlaces(), [], makeContext()).scored.map((r) => r.score);
+    for (let i = 1; i < scores.length; i++) {
+      expect(scores[i]).toBeLessThanOrEqual(scores[i - 1]);
+    }
+  });
 
-    const result = recommend(places, [], makeContext({
-      weather: makeForecast({ rainProbability: 10, apparentTempC: 26 }),
-    }));
+  it("分數落在 0 到 100 之間", () => {
+    for (const r of recommend(mixedPlaces(), [], makeContext()).scored) {
+      expect(r.score).toBeGreaterThanOrEqual(0);
+      expect(r.score).toBeLessThanOrEqual(100);
+    }
+  });
 
-    expect(result[0].place.id).toBe("park");
+  it("scoreBreakdown 解釋得了旁邊那個總分", () => {
+    const [r] = recommend(mixedPlaces(), [], makeContext()).scored;
+    const rebuilt =
+      Object.entries(WEIGHTS).reduce(
+        (sum, [factor, w]) => sum + w * r.scoreBreakdown[factor as keyof typeof WEIGHTS],
+        0,
+      ) * 100;
+    expect(rebuilt).toBeCloseTo(r.score, 10);
   });
 });
-
-describe("即時路況（ADR-0005）", () => {
-  /**
-   * 這一組測試守的是接 Google Routes API 的實際理由：
-   * 連假的國道路況與平常差 20–40 分鐘，而 Stage 1 的車程過濾是一道懸崖，
-   * 照平日車程判斷會放行一堆其實開不到的地點。
-   */
-
-  it("連假時即時車程超過上限，地點被剔除——即使基準值在上限內", () => {
-    // 建檔時填 40 分（平常日實測），車程上限 45 分 → 平常會通過。
-    // 連假即時路況 65 分 → 應該被剔除。
-    const places = [makePlace({ id: "far-park", driveMinutes: 40 })];
-    const context = makeContext({
-      maxDriveMinutes: 45,
-      availableWindow: { start: "09:00", end: "18:00" },
-      liveDriveMinutes: new Map([["far-park", 65]]),
-    });
-
-    expect(recommend(places, [], context)).toEqual([]);
-
-    // 對照組：同樣的地點、同樣的上限，沒有即時路況時會通過。
-    const withoutLive = recommend(
-      places,
-      [],
-      makeContext({
-        maxDriveMinutes: 45,
-        availableWindow: { start: "09:00", end: "18:00" },
-      }),
-    );
-    expect(withoutLive).toHaveLength(1);
-  });
-
-  it("路況比平常明顯慢時發出警示，說出慢了幾分鐘", () => {
-    const places = [makePlace({ id: "park", driveMinutes: 15 })];
-    const [result] = recommend(
-      places,
-      [],
-      makeContext({ liveDriveMinutes: new Map([["park", 40]]) }),
-    );
-
-    expect(result.warnings.join()).toContain("路況比平常慢約 25 分");
-  });
-
-  it("路況只差幾分鐘時不發警示——常駐的警示等於沒有警示", () => {
-    const places = [makePlace({ id: "park", driveMinutes: 15 })];
-    const [result] = recommend(
-      places,
-      [],
-      makeContext({ liveDriveMinutes: new Map([["park", 20]]) }),
-    );
-
-    expect(result.warnings.join()).not.toContain("路況");
-  });
-
-  it("路況比平常快時不發警示", () => {
-    const places = [makePlace({ id: "park", driveMinutes: 30 })];
-    const [result] = recommend(
-      places,
-      [],
-      makeContext({ liveDriveMinutes: new Map([["park", 12]]) }),
-    );
-
-    expect(result.warnings.join()).not.toContain("路況");
-  });
-
-  it("即時車程會影響車程評分，不是只用來過濾", () => {
-    const places = [makePlace({ id: "park", driveMinutes: 15 })];
-    const fast = recommend([...places], [], makeContext());
-    const slow = recommend(
-      [...places],
-      [],
-      makeContext({ liveDriveMinutes: new Map([["park", 40]]) }),
-    );
-
-    expect(slow[0].score).toBeLessThan(fast[0].score);
-  });
-
-  it("即時車程會延後到家時間，可能因此撞上午睡", () => {
-    // 基準 15 分：09:00 出發 → 11:30 到家，不撞 12:30 的午睡。
-    // 即時 50 分：09:00 出發 → 13:40 到家，撞上午睡 → 作息分數砍半。
-    const places = [makePlace({ id: "park", driveMinutes: 15, typicalDurationMin: 120 })];
-    const window = { start: "09:00", end: "18:00" };
-
-    const baseline = recommend([...places], [], makeContext({ availableWindow: window }));
-    const heavyTraffic = recommend(
-      [...places],
-      [],
-      makeContext({
-        availableWindow: window,
-        maxDriveMinutes: 60,
-        liveDriveMinutes: new Map([["park", 50]]),
-      }),
-    );
-
-    expect(baseline[0].scoreBreakdown.schedule).toBe(1);
-    expect(heavyTraffic[0].scoreBreakdown.schedule).toBeLessThan(1);
-  });
-
-  it("結果揭露採用的車程與它的來源", () => {
-    const places = [makePlace({ id: "park", driveMinutes: 15 })];
-    const [live] = recommend(
-      places,
-      [],
-      makeContext({ liveDriveMinutes: new Map([["park", 22]]) }),
-    );
-    const [baseline] = recommend(places, [], makeContext());
-
-    expect(live.driveMinutes).toBe(22);
-    expect(live.driveMinutesSource).toBe("live");
-    expect(baseline.driveMinutes).toBe(15);
-    expect(baseline.driveMinutesSource).toBe("baseline");
-  });
-});
-
-describe("離線後備（P6）", () => {
-  /**
-   * ADR-0005 選了「即時覆蓋 + 手填後備」而不是「全面改用 API」，
-   * 理由就是 P6：使用者最需要這個 App 的時刻（人在外面準備出門）
-   * 正是訊號最不穩的時候。這一組測試守住那個保證。
-   */
-
-  it("完全沒有即時路況時，功能不中斷只是精度下降", () => {
-    const places = [
-      makePlace({ id: "near", driveMinutes: 10 }),
-      makePlace({ id: "far", driveMinutes: 35 }),
-    ];
-    const result = recommend(places, [], makeContext({ maxDriveMinutes: 45 }));
-
-    expect(result.map((r) => r.place.id)).toEqual(["near", "far"]);
-    expect(result.every((r) => r.driveMinutesSource === "baseline")).toBe(true);
-  });
-
-  it("只有部分地點查得到即時路況時，其餘各自退回基準值", () => {
-    // Routes API 可能對某些目的地算不出路線（例如外島），
-    // 那些地點不該因此消失，只是精度退回基準值。
-    const places = [
-      makePlace({ id: "a", driveMinutes: 10 }),
-      makePlace({ id: "b", driveMinutes: 20 }),
-    ];
-    const result = recommend(
-      places,
-      [],
-      makeContext({ liveDriveMinutes: new Map([["a", 18]]) }),
-    );
-
-    const byId = new Map(result.map((r) => [r.place.id, r]));
-    expect(byId.get("a")!.driveMinutesSource).toBe("live");
-    expect(byId.get("a")!.driveMinutes).toBe(18);
-    expect(byId.get("b")!.driveMinutesSource).toBe("baseline");
-    expect(byId.get("b")!.driveMinutes).toBe(20);
-  });
-
-  it("空的即時路況 Map 等同於沒有提供", () => {
-    const places = [makePlace({ id: "a", driveMinutes: 10 })];
-    const empty = recommend(places, [], makeContext({ liveDriveMinutes: new Map() }));
-    const absent = recommend(places, [], makeContext());
-
-    expect(empty[0].score).toBe(absent[0].score);
-    expect(empty[0].driveMinutesSource).toBe("baseline");
-  });
-});
-
