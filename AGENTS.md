@@ -39,7 +39,7 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 | P1 | **零建檔啟動** | 使用者不手動建立地點。初始輸入僅住家地址與小孩生日 |
 | P2 | **不打開也有用** | 任何「必須開啟 App 才能獲得的價值」都是設計失誤 |
 | P3 | 答案優先，非清單 | 輸出是決定，不是選項集合 |
-| P4 | 窄而深 | 匯入全臺資料，但只對住家直線半徑內的地點算車程（[ADR-0009](docs/adr/0009-import-radius-not-counties.md)） |
+| P4 | 窄而深 | 匯入全臺資料，推薦只看住家直線半徑內的地點（[ADR-0009](docs/adr/0009-import-radius-not-counties.md)、[ADR-0017](docs/adr/0017-radius-as-query-filter.md)） |
 | P5 | 紀錄是長期資產 | 永不刪除，但它是慢變數 |
 | P6 | AI 只提議，不決定 | 見下節 |
 | P7 | 決策邏輯可讀可測可改 | 評分規則是本產品最有價值的資產 |
@@ -140,7 +140,8 @@ commit 訊息與 ADR 的規則見 [`CONTRIBUTING.md`](CONTRIBUTING.md)。
 
 1. 下載五類開放資料（遊戲場清冊、親子館、公園設施、觀光景點、圖書館）
 2. 正規化並套用 `lib/domain/category-priors.ts` 的先驗值，全部標 `category_prior`
-3. 依 [ADR-0009](docs/adr/0009-import-radius-not-counties.md) 只保留住家直線半徑內的
+3. 全臺照收，**半徑不在匯入階段篩**——匯入器與住家位置無關，
+   半徑是查詢時的條件（[ADR-0017](docs/adr/0017-radius-as-query-filter.md)）
 4. **重複匯入必須冪等**，且不得覆蓋 `fieldSources` 非 `category_prior` 的欄位
    （規則見 [`docs/資料模型草案.md`](docs/資料模型草案.md) §7）
 5. 匯入階段**不呼叫 Google**（[ADR-0013](docs/adr/0013-geometric-baseline-drive-estimate.md)）
