@@ -30,3 +30,4 @@ ADR 一旦寫下就不修改內容。決定變了就寫新的一份，把舊的�
 | [0015](0015-reuse-ghcr-watchtower-pipeline.md) | 沿用既有 GHCR + Watchtower 管線；**SQLite 必須掛持久卷** | 已採納（實作延後） | 2026-08-26 |
 | [0016](0016-spec-gaps-found-in-implementation.md) | 實作 Stage 1 時發現的兩個規格缺口（需預約、避開人多） | **提議中** | 2026-08-26 |
 | [0017](0017-radius-as-query-filter.md) | 半徑改為查詢時的篩選條件，匯入器不依賴住家位置 | 已採納 | 2026-08-26 |
+| [0018](0018-quick-marking-not-preference-swiping.md) | 做「快速標記」掛在推播回饋之後，不做獨立的偏好滑卡 | 已採納 | 2026-08-28 |
