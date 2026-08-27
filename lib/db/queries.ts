@@ -8,7 +8,7 @@
 
 import "server-only";
 
-import { asc, eq, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNotNull, notInArray, sql } from "drizzle-orm";
 
 import { db } from "./index";
 import {
@@ -16,6 +16,7 @@ import {
   homeBase,
   places,
   visits,
+  type SourceDataset,
   type HomeBase,
   type NewHomeBase,
   type Child,
@@ -78,6 +79,74 @@ export async function updatePlace(
   values: Omit<NewPlace, "id">,
 ): Promise<void> {
   await db.update(places).set(values).where(eq(places.id, id));
+}
+
+/** 只更新指定的欄位。匯入器用這個，因為它多半只動得了一部分欄位。 */
+export async function updatePlaceFields(
+  id: string,
+  values: Partial<NewPlace>,
+): Promise<void> {
+  if (Object.keys(values).length === 0) return;
+  await db.update(places).set(values).where(eq(places.id, id));
+}
+
+/**
+ * 以 (sourceDataset, sourceId) 找出既有地點——匯入器判斷「這是同一個地點」的依據。
+ *
+ * ⚠️ 這兩欄目前**沒有** unique index。單使用者、單程序下不會出問題，
+ * 但併發匯入可能產生重複列。要加索引需要一次 migration。
+ */
+export async function findPlaceBySource(
+  sourceDataset: SourceDataset,
+  sourceId: string,
+): Promise<Place | null> {
+  const rows = await db
+    .select()
+    .from(places)
+    .where(and(eq(places.sourceDataset, sourceDataset), eq(places.sourceId, sourceId)))
+    .limit(1);
+  return rows[0] ?? null;
+}
+
+/**
+ * 標記「來源不再包含這筆」，**但不刪除**。
+ *
+ * 不刪除的理由：那筆地點可能已經有造訪紀錄，刪掉會讓紀錄變成孤兒，
+ * 而 §6.4 說紀錄永不刪除（docs/資料模型草案.md §7）。
+ */
+export async function markPlacesRemovedFromSource(
+  sourceDataset: SourceDataset,
+  stillPresentSourceIds: string[],
+  removedAt: string,
+): Promise<number> {
+  const stillPresent =
+    stillPresentSourceIds.length > 0
+      ? notInArray(places.sourceId, stillPresentSourceIds)
+      : sql`1 = 1`;
+  const result = await db
+    .update(places)
+    .set({ sourceRemovedAt: removedAt })
+    .where(and(eq(places.sourceDataset, sourceDataset), stillPresent, sql`${places.sourceRemovedAt} IS NULL`));
+  return result.changes ?? 0;
+}
+
+/** 曾被標記移除、但這次又出現在來源裡的地點，要把標記清掉。 */
+export async function clearSourceRemovedFlag(
+  sourceDataset: SourceDataset,
+  sourceIds: string[],
+): Promise<number> {
+  if (sourceIds.length === 0) return 0;
+  const result = await db
+    .update(places)
+    .set({ sourceRemovedAt: null })
+    .where(
+      and(
+        eq(places.sourceDataset, sourceDataset),
+        inArray(places.sourceId, sourceIds),
+        isNotNull(places.sourceRemovedAt),
+      ),
+    );
+  return result.changes ?? 0;
 }
 
 /** 這個地點累積了幾筆出遊紀錄 */

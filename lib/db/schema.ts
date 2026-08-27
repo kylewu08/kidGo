@@ -58,11 +58,18 @@ export type Mobility = "carried" | "stroller" | "walks_short" | "walks_full";
 /**
  * 欄位來源（v1.0 §6.2）。
  *
- * **匯入器只能覆蓋 `category_prior` 的欄位**，其餘代表人已經確認過。
- * 這是 upsert 規則的依據，也是「時長自動修正」只動先驗值的依據（ADR-0014）。
+ * **匯入器只能覆蓋 `category_prior` 與 `source_data` 的欄位**，
+ * 其餘代表人或紀錄已經確認過。這是 upsert 規則的依據，
+ * 也是「時長自動修正」只動先驗值的依據（ADR-0014）。
+ *
+ * `source_data` 是實作 ADR-0019 時補上的：開放資料直接讀到的實值
+ * （例如臺北公園的面積、觀光景點的 VisitDuration）既不是類別先驗，
+ * 也不是人填的。沒有這一格的話，來源實值會被標成 `category_prior`，
+ * 於是「時長自動修正只動先驗值」那條規則會誤改真實資料。
  */
 export type FieldSource =
   | "category_prior"
+  | "source_data"
   | "ai_suggested"
   | "manual"
   | "visit_corrected";
@@ -181,7 +188,7 @@ export const places = sqliteTable("places", {
   strollerFriendly: integer("stroller_friendly", { mode: "boolean" }).notNull(),
 
   // --- 資料品質 ---
-  /** key 是本表的欄位名。匯入器只能覆蓋值為 category_prior 的欄位。 */
+  /** key 是本表的欄位名。匯入器只能覆蓋 category_prior 與 source_data 的欄位。 */
   fieldSources: text("field_sources", { mode: "json" })
     .$type<Partial<Record<string, FieldSource>>>()
     .notNull()
