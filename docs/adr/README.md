@@ -33,3 +33,4 @@ ADR 一旦寫下就不修改內容。決定變了就寫新的一份，把舊的�
 | [0018](0018-quick-marking-not-preference-swiping.md) | 做「快速標記」掛在推播回饋之後，不做獨立的偏好滑卡 | 已採納 | 2026-08-28 |
 | [0019](0019-per-row-admission-test-northern-taiwan.md) | 匯入改為逐筆入場測試，範圍限北部四縣市 | 已採納 | 2026-08-28 |
 | [0020](0020-library-admitted-on-category.md) | 圖書館加入類別豁免清單，並改寫該清單的判準 | 已採納 | 2026-08-29 |
+| [0021](0021-reference-note-for-transient-rejections.md) | 輸出增加「參考欄」，只收當日條件造成的剔除 | 已採納 | 2026-08-29 |

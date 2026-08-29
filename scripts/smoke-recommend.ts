@@ -17,7 +17,12 @@
 import Database from "better-sqlite3";
 
 import type { Child, DayType, FamilyPreference, Place } from "@/lib/db/schema";
-import { recommend, selectPrecisionShortlist, type RecommendContext } from "@/lib/recommend";
+import {
+  pickReferenceNote,
+  recommend,
+  selectPrecisionShortlist,
+  type RecommendContext,
+} from "@/lib/recommend";
 import { fetchDriveMinutes } from "@/lib/routes/matrix";
 import { fetchCwaForecast } from "@/lib/weather/cwa";
 import type { CountyName } from "@/lib/weather/townships";
@@ -178,4 +183,22 @@ if (result.slots.length === 0) {
     );
     console.log();
   }
+}
+
+// --- 參考欄：今天不行、改天可以的一個地點（ADR-0021）--------------------------
+// 這不是第四個推薦。剔除理由必須跟它一起出現，否則會被讀成推薦。
+const REJECTION_LABEL: Record<string, string> = {
+  heat: "今天體感過高且遮蔭不足",
+  rain: "今天降雨機率過高",
+  not_enough_time: "今天的可用時間不夠",
+};
+const note = pickReferenceNote(
+  result.rejected,
+  result.slots.map((r) => r.place.category),
+);
+if (note) {
+  console.log(
+    `【參考】${note.result.place.name}　${REJECTION_LABEL[note.rejectedBy] ?? note.rejectedBy}，今天不推薦`,
+  );
+  console.log(`   車程約 ${note.result.drive.outboundMinutes} 分 · 改天條件合適時可以考慮`);
 }

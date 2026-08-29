@@ -186,6 +186,7 @@ function describeNoOuting(
 export { applyStage1, effectiveLimits } from "./filters";
 export { applyStage3, isWeatherProof } from "./diversity";
 export { selectPrecisionShortlist } from "./precision";
+export { pickReferenceNote, TRANSIENT_REJECTIONS } from "./reference";
 export { breakdownForChild, totalScore, shouldSuppressPreference } from "./scoring";
 export { explain, REASON_THRESHOLDS } from "./reasons";
 export { formatClock, driveFor, buildTimeline } from "./timeline";
