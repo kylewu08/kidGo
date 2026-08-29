@@ -17,7 +17,7 @@
 import Database from "better-sqlite3";
 
 import type { Child, DayType, FamilyPreference, Place } from "@/lib/db/schema";
-import { applyStage1, recommend, type RecommendContext } from "@/lib/recommend";
+import { recommend, type RecommendContext } from "@/lib/recommend";
 import { fetchDriveMinutes } from "@/lib/routes/matrix";
 import { fetchCwaForecast } from "@/lib/weather/cwa";
 import type { CountyName } from "@/lib/weather/townships";
@@ -126,8 +126,12 @@ console.log(
     : "天氣        這個時間點沒有預報資料",
 );
 
-// --- 2. 兩段式車程：粗篩後只對前 8 名精算（§7.1、ADR-0005 的成本控制）--------
-const shortlist = applyStage1(places, base).filter((r) => r.passed).map((r) => r.place).slice(0, 8);
+// --- 2. 兩段式車程：初評後只對前 8 名精算（§7.1、ADR-0005 的成本控制）--------
+//
+// **必須先用粗估車程跑完 Stage 2 排序，再取前 8 名**（資料模型草案 §8）。
+// 直接取 Stage 1 存活者的前 8 個是錯的：那是資料庫順序，不是分數順序，
+// 額度會花在隨機的地點上，而真正會被推薦的那幾個仍然只有估算值。
+const shortlist = recommend(places, [], base).scored.slice(0, 8).map((r) => r.place);
 
 let preciseDrive: Map<string, { outboundMinutes: number; returnMinutes: number }> | undefined;
 const routesKey = process.env.GOOGLE_ROUTES_API_KEY;
