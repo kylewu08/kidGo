@@ -2,19 +2,14 @@
  * 匯入的執行層：把 SourceRecord 落地到資料庫。
  *
  * 決策（哪些欄位可以覆蓋、值是什麼）全在 `upsert.ts` 的純函式裡；
- * 這裡只負責讀寫與統計，因此本檔案沒有測試——**要測的東西不在這裡**。
+ * 這裡負責流程與統計，資料庫存取則走 `PlaceStore` 介面，
+ * 因此整條落地流程可以用記憶體實作測到，不需要真的建一個資料庫。
  */
 
 import type { NewPlace, SourceDataset } from "@/lib/db/schema";
-import {
-  clearSourceRemovedFlag,
-  createPlace,
-  findPlaceBySource,
-  markPlacesRemovedFromSource,
-  updatePlaceFields,
-} from "@/lib/db/queries";
 
 import { admit } from "./admission";
+import type { PlaceStore } from "./store";
 import type { SourceRecord } from "./types";
 import { planUpsert } from "./upsert";
 
@@ -37,6 +32,7 @@ export interface ImportReport {
 }
 
 export async function importRecords(
+  store: PlaceStore,
   dataset: SourceDataset,
   records: readonly SourceRecord[],
   now: () => string = () => new Date().toISOString(),
@@ -62,6 +58,11 @@ export async function importRecords(
       continue;
     }
 
+    // 來源裡確實有這一筆，所以無論後面處不處理得了，都算「見過」——
+    // 否則缺座標的筆數會被下面的移除掃描誤標為「來源不再包含」，
+    // 而且每跑一次標記一次。
+    seenSourceIds.push(record.sourceId);
+
     // 座標是硬需求：沒有座標就算不出車程，Stage 1 無從過濾。
     // 這些筆等 geocoding 那一步補上後再匯入，不是被拒絕。
     if (record.lat === null || record.lng === null) {
@@ -69,9 +70,7 @@ export async function importRecords(
       continue;
     }
 
-    seenSourceIds.push(record.sourceId);
-
-    const existing = await findPlaceBySource(dataset, record.sourceId);
+    const existing = await store.findBySource(dataset, record.sourceId);
     const plan = planUpsert(existing, record);
     report.protectedFields += plan.protectedFields.length;
 
@@ -89,16 +88,16 @@ export async function importRecords(
     };
 
     if (plan.action === "create") {
-      await createPlace({ ...identity, ...plan.values } as Omit<NewPlace, "id">);
+      await store.create({ ...identity, ...plan.values } as Omit<NewPlace, "id">);
       report.created += 1;
     } else {
-      await updatePlaceFields(existing!.id, { ...identity, ...plan.values } as Partial<NewPlace>);
+      await store.updateFields(existing!.id, { ...identity, ...plan.values } as Partial<NewPlace>);
       report.updated += 1;
     }
   }
 
-  report.restored = await clearSourceRemovedFlag(dataset, seenSourceIds);
-  report.markedRemoved = await markPlacesRemovedFromSource(dataset, seenSourceIds, importedAt);
+  report.restored = await store.clearRemoved(dataset, seenSourceIds);
+  report.markedRemoved = await store.markRemoved(dataset, seenSourceIds, importedAt);
 
   return report;
 }
