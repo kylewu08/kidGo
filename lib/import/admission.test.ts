@@ -73,12 +73,20 @@ describe("入場測試（ADR-0019）", () => {
     });
   });
 
-  it("類別豁免清單維持只有兩項", () => {
-    // 這個測試守的是 ADR-0019 的一條約束而不是一段程式碼：
-    // 清單一旦開始成長，入場測試就名存實亡了。要加第三項請先改 ADR。
+  it("圖書館即使沒有任何額外欄位也放行", () => {
+    // §7.3 的備案槽位要求至少一個室內選項。少了圖書館，
+    // 雨天與高溫時三個槽位填不滿（ADR-0020）。
+    expect(admit(record({ category: "library" })).admitted).toBe(true);
+  });
+
+  it("類別豁免清單維持在三項", () => {
+    // 這個測試守的是 ADR-0020 的判準而不是一段程式碼：
+    // 每加一項都要說得出它填補哪一個結構性空缺，所以要先改 ADR。
+    // 長到五項以上代表判準第 2 條沒在守門，該檢討的是整體設計。
     expect(CATEGORIES_ADMITTED_ON_THEIR_OWN).toEqual([
       "parenting_center",
       "inclusive_playground",
+      "library",
     ]);
   });
 });

@@ -16,19 +16,27 @@ import type { Category } from "@/lib/db/schema";
 import type { ObservedFieldName, SourceRecord } from "./types";
 
 /**
- * ADR-0019 第 2 條：類別本身即為強資訊的例外。
+ * ADR-0019 第 2 條：類別本身即為強資訊的例外。判準見 ADR-0020。
  *
- * **這份清單刻意只有兩項，而且必須維持列舉。**
- * 一旦允許「這個類別感覺也算」的解釋，整個測試就空了——
- * 每個類別都能講出一套「Google 分不到這個粒度」的說法。
+ * 列入這份清單必須**同時**滿足兩條：
  *
- * - `parenting_center`：「0–6 歲專用、室內、免費」。
- *   Google Maps 上多半只是一個地址，連營業性質都看不出來
+ * 1. 該類別的先驗值組合本身就是強資訊，且 Google 的分類到不了那個粒度
+ * 2. **移除該類別會在推薦輸出上造成結構性空缺**——
+ *    §7.3 的三個槽位或 §7.4 的防同溫層會因此無法運作
+ *
+ * 第 2 條是真正的守門者。農場、步道、海邊都講得出一套「Google 分不到
+ * 這個粒度」的說法，但少了它們，三個槽位照樣填得滿。
+ *
+ * - `parenting_center`：免費、室內、0–6 歲專用。Google 上多半只是一個地址
  * - `inclusive_playground`：「共融」是法定標記，隱含安全封閉性與無障礙設計
+ * - `library`：免費、室內、有冷氣、低放電。**§7.3 的備案槽位要求
+ *   至少一個室內選項**——2026-08-29 匯入 789 筆全戶外公園後，
+ *   三個槽位只填得出一個，就是少了這一項（ADR-0020）
  */
 export const CATEGORIES_ADMITTED_ON_THEIR_OWN: readonly Category[] = [
   "parenting_center",
   "inclusive_playground",
+  "library",
 ] as const;
 
 export type AdmissionVerdict =
