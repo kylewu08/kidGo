@@ -17,7 +17,7 @@
 import Database from "better-sqlite3";
 
 import type { Child, DayType, FamilyPreference, Place } from "@/lib/db/schema";
-import { recommend, type RecommendContext } from "@/lib/recommend";
+import { recommend, selectPrecisionShortlist, type RecommendContext } from "@/lib/recommend";
 import { fetchDriveMinutes } from "@/lib/routes/matrix";
 import { fetchCwaForecast } from "@/lib/weather/cwa";
 import type { CountyName } from "@/lib/weather/townships";
@@ -131,7 +131,7 @@ console.log(
 // **必須先用粗估車程跑完 Stage 2 排序，再取前 8 名**（資料模型草案 §8）。
 // 直接取 Stage 1 存活者的前 8 個是錯的：那是資料庫順序，不是分數順序，
 // 額度會花在隨機的地點上，而真正會被推薦的那幾個仍然只有估算值。
-const shortlist = recommend(places, [], base).scored.slice(0, 8).map((r) => r.place);
+const shortlist = selectPrecisionShortlist(recommend(places, [], base).scored).map((r) => r.place);
 
 let preciseDrive: Map<string, { outboundMinutes: number; returnMinutes: number }> | undefined;
 const routesKey = process.env.GOOGLE_ROUTES_API_KEY;

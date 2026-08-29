@@ -56,6 +56,24 @@ export const THRESHOLDS = {
 
   /** `excludeRecentDays` 未指定時的預設值 */
   defaultExcludeRecentDays: 14,
+
+  /**
+   * 精算名單的大小（§10.3、ADR-0005 的成本控制）。
+   *
+   * Stage 2 初評之後只對前這麼多名查即時路況，其餘沿用幾何估計。
+   * 這個數字直接對應 Routes API 的用量：每次決策 N 次查詢。
+   */
+  precisionShortlistSize: 8,
+
+  /**
+   * 精算名單裡保留給室內選項的名額。
+   *
+   * 沒有這個保留額時，前 8 名在晴天會全部是戶外地點，
+   * 於是 §7.3 的備案（**至少一個室內選項**）永遠只有估算車程。
+   * 而備案存在的理由正是天氣突變——那時「能否在午睡前返家」
+   * 依賴的是它的回程時間，不是主建議的。
+   */
+  precisionReservedIndoorSlots: 1,
 } as const;
 
 /**

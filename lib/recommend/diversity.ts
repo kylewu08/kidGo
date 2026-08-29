@@ -12,7 +12,7 @@ import { DIVERSITY, SCORING } from "./weights";
 import type { Recommendation, RecommendContext, SlotKind } from "./types";
 
 /** 室內或有頂戶外都能應付天氣突變 */
-function isWeatherProof(r: Recommendation): boolean {
+export function isWeatherProof(r: Recommendation): boolean {
   return r.place.indoorType === "indoor" || r.place.indoorType === "covered_outdoor";
 }
 
