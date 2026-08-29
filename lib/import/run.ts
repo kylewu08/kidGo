@@ -9,6 +9,7 @@
 import type { NewPlace, SourceDataset } from "@/lib/db/schema";
 
 import { admit } from "./admission";
+import { EMPTY_GEOCODE_TABLE, type GeocodeTable } from "./geocode";
 import type { PlaceStore } from "./store";
 import type { SourceRecord } from "./types";
 import { planUpsert } from "./upsert";
@@ -21,6 +22,8 @@ export interface ImportReport {
   rejected: number;
   /** 沒有座標、待 geocode 而暫緩的筆數 */
   deferredNoCoordinates: number;
+  /** 由 TGOS 結果檔補上座標的筆數 */
+  geocoded: number;
   created: number;
   updated: number;
   /** 因為已被人或紀錄確認過而未被覆蓋的欄位次數 */
@@ -31,17 +34,26 @@ export interface ImportReport {
   restored: number;
 }
 
+export interface ImportOptions {
+  /** TGOS 批次比對的結果。來源沒有座標時用地址查這張表。 */
+  geocode?: GeocodeTable;
+  now?: () => string;
+}
+
 export async function importRecords(
   store: PlaceStore,
   dataset: SourceDataset,
   records: readonly SourceRecord[],
-  now: () => string = () => new Date().toISOString(),
+  options: ImportOptions = {},
 ): Promise<ImportReport> {
+  const geocode = options.geocode ?? EMPTY_GEOCODE_TABLE;
+  const now = options.now ?? (() => new Date().toISOString());
   const report: ImportReport = {
     dataset,
     incoming: records.length,
     rejected: 0,
     deferredNoCoordinates: 0,
+    geocoded: 0,
     created: 0,
     updated: 0,
     protectedFields: 0,
@@ -64,10 +76,18 @@ export async function importRecords(
     seenSourceIds.push(record.sourceId);
 
     // 座標是硬需求：沒有座標就算不出車程，Stage 1 無從過濾。
-    // 這些筆等 geocoding 那一步補上後再匯入，不是被拒絕。
-    if (record.lat === null || record.lng === null) {
-      report.deferredNoCoordinates += 1;
-      continue;
+    // 來源沒給的話先查 TGOS 結果檔；還是查不到就暫緩，不是被拒絕。
+    let { lat, lng } = record;
+    if (lat === null || lng === null) {
+      const located = geocode.lookup(record.address);
+      if (located) {
+        lat = located.lat;
+        lng = located.lng;
+        report.geocoded += 1;
+      } else {
+        report.deferredNoCoordinates += 1;
+        continue;
+      }
     }
 
     const existing = await store.findBySource(dataset, record.sourceId);
@@ -79,8 +99,8 @@ export async function importRecords(
       sourceId: record.sourceId,
       name: record.name,
       address: record.address,
-      lat: record.lat,
-      lng: record.lng,
+      lat,
+      lng,
       category: record.category,
       importedAt,
       sourceUpdatedAt: record.sourceUpdatedAt ?? null,

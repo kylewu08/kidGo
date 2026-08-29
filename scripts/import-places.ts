@@ -12,16 +12,53 @@
  * 且不會覆蓋 fieldSources 為 manual / visit_corrected / ai_suggested 的欄位。
  */
 
+import { existsSync, readdirSync, readFileSync } from "node:fs";
+
 import Database from "better-sqlite3";
 import { drizzle } from "drizzle-orm/better-sqlite3";
 
 import { downloadText, fetchResources, pickResource } from "@/lib/import/catalog";
 import { importRecords, type ImportReport } from "@/lib/import/run";
 import { findSource, SOURCES, type SourceDefinition } from "@/lib/import/sources/registry";
+import {
+  EMPTY_GEOCODE_TABLE,
+  mergeGeocodeTables,
+  parseTgosResult,
+  type GeocodeTable,
+} from "@/lib/import/geocode";
 import { createSqlitePlaceStore } from "@/lib/import/sqlite-store";
 import type { PlaceStore } from "@/lib/import/store";
 
-async function importOne(store: PlaceStore, source: SourceDefinition): Promise<ImportReport> {
+const GEOCODE_DIR = "data/geocode";
+
+/**
+ * 載入所有 TGOS 批次比對的結果檔。
+ *
+ * 缺檔不是錯誤：座標齊全的來源本來就不需要，而還沒送去比對的來源
+ * 會走 deferredNoCoordinates 那條路，等結果檔到了再重跑即可。
+ */
+function loadGeocodeTable(): GeocodeTable {
+  if (!existsSync(GEOCODE_DIR)) return EMPTY_GEOCODE_TABLE;
+  const files = readdirSync(GEOCODE_DIR)
+    .filter((f) => f.endsWith(".result.csv"))
+    .sort();
+  if (files.length === 0) return EMPTY_GEOCODE_TABLE;
+
+  const table = mergeGeocodeTables(
+    files.map((f) => parseTgosResult(readFileSync(`${GEOCODE_DIR}/${f}`, "utf-8"))),
+  );
+  console.log(
+    `座標表　　　 ${files.length} 個結果檔 · 可查 ${table.entries.size} 個地址` +
+      (table.unmatched.length > 0 ? ` · TGOS 比對不到 ${table.unmatched.length} 個` : ""),
+  );
+  return table;
+}
+
+async function importOne(
+  store: PlaceStore,
+  geocode: GeocodeTable,
+  source: SourceDefinition,
+): Promise<ImportReport> {
   const resources = await fetchResources(source.datasetId);
   const resource = pickResource(resources, source.datasetId, source.resourceDescription);
 
@@ -30,13 +67,14 @@ async function importOne(store: PlaceStore, source: SourceDefinition): Promise<I
   const records = source.parse(text);
   console.log(`  解析出 ${records.length} 筆`);
 
-  return importRecords(store, source.sourceDataset, records);
+  return importRecords(store, source.sourceDataset, records, { geocode });
 }
 
 function printReport(report: ImportReport): void {
   const rows: [string, number][] = [
     ["來源筆數", report.incoming],
     ["入場測試擋下", report.rejected],
+    ["由座標表補上", report.geocoded],
     ["缺座標暫緩", report.deferredNoCoordinates],
     ["新增", report.created],
     ["更新", report.updated],
@@ -57,11 +95,12 @@ async function main(): Promise<void> {
   sqlite.pragma("journal_mode = WAL");
   sqlite.pragma("foreign_keys = ON");
   const store = createSqlitePlaceStore(drizzle(sqlite));
+  const geocode = loadGeocodeTable();
 
   for (const source of selected) {
     console.log(`\n▸ ${source.label}（資料集 ${source.datasetId}）`);
     try {
-      printReport(await importOne(store, source));
+      printReport(await importOne(store, geocode, source));
     } catch (error) {
       console.error(`  ✗ 失敗：${error instanceof Error ? error.message : String(error)}`);
       process.exitCode = 1;

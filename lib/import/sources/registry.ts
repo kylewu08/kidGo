@@ -12,6 +12,10 @@ import type { SourceDataset } from "@/lib/db/schema";
 
 import type { SourceRecord } from "../types";
 import { LIBRARIES_DATASET_ID, toSourceRecords as libraries } from "./libraries";
+import {
+  PARENTING_CENTERS_DATASET_ID,
+  toSourceRecords as parentingCenters,
+} from "./parenting-centers";
 import { toSourceRecords as taipeiParks, TAIPEI_PARKS_DATASET_ID } from "./taipei-parks";
 
 export interface SourceDefinition {
@@ -44,6 +48,13 @@ export const SOURCES: readonly SourceDefinition[] = [
     datasetId: LIBRARIES_DATASET_ID,
     sourceDataset: "library",
     parse: (text) => libraries(JSON.parse(text)),
+  },
+  {
+    key: "parenting-centers",
+    label: "全國親子館（托育資源中心）名冊",
+    datasetId: PARENTING_CENTERS_DATASET_ID,
+    sourceDataset: "parenting_center",
+    parse: parentingCenters,
   },
 ] as const;
 
