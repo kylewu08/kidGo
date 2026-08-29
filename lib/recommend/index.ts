@@ -187,6 +187,15 @@ export { applyStage1, effectiveLimits } from "./filters";
 export { applyStage3, isWeatherProof } from "./diversity";
 export { selectPrecisionShortlist } from "./precision";
 export { pickReferenceNote, TRANSIENT_REJECTIONS } from "./reference";
+export {
+  COVERAGE_SCENARIOS,
+  COVERAGE_TARGET,
+  diagnoseCoverage,
+  diagnoseScenario,
+  type CoverageBaseline,
+  type CoverageResult,
+  type CoverageScenario,
+} from "./coverage";
 export { breakdownForChild, totalScore, shouldSuppressPreference } from "./scoring";
 export { explain, REASON_THRESHOLDS } from "./reasons";
 export { formatClock, driveFor, buildTimeline } from "./timeline";
