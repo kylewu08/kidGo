@@ -10,9 +10,14 @@ import "server-only";
 
 import { asc, eq, sql } from "drizzle-orm";
 
+import {
+  DEFAULT_FAMILY_PREFERENCE,
+  type FamilyPreferenceInput,
+} from "./family-preference-input";
 import { db } from "./index";
 import {
   children,
+  familyPreferences,
   homeBase,
   places,
   visits,
@@ -20,6 +25,7 @@ import {
   type NewHomeBase,
   type Child,
   type NewChild,
+  type FamilyPreference,
   type NewPlace,
   type Place,
   type Visit,
@@ -157,4 +163,48 @@ export async function deleteChild(id: string): Promise<void> {
 /** 全部出遊紀錄。v1 的量很小，推薦引擎一次吃全部（它是純函式，不讀 DB）。 */
 export async function listVisits(): Promise<Visit[]> {
   return db.select().from(visits);
+}
+
+// ---------------------------------------------------------------------------
+// FamilyPreference（初始三題）
+// ---------------------------------------------------------------------------
+
+/** FamilyPreference 是單列表，id 固定為這個值 */
+const FAMILY_PREFERENCE_ID = "default";
+
+/**
+ * 從未回答過三題時回傳 null。
+ *
+ * 與 `getFamilyPreference` 分成兩個函式，是為了讓「沒設定」與「設定成
+ * 剛好等於預設值」區分得開——UI 要靠這個決定要不要提示，而推薦流程
+ * 不該知道這件事的差別。
+ */
+export async function getStoredFamilyPreference(): Promise<FamilyPreference | null> {
+  const rows = await db
+    .select()
+    .from(familyPreferences)
+    .where(eq(familyPreferences.id, FAMILY_PREFERENCE_ID))
+    .limit(1);
+  return rows[0] ?? null;
+}
+
+/**
+ * 推薦流程要用的家庭偏好，未設定時回傳預設值。
+ *
+ * 這裡刻意**不回傳 null**，與 `getHomeBase` 相反。出發點沒有預設值可言
+ * ——不知道從哪出發就算不出車程；三題則有，因為驗收標準一要求「僅輸入
+ * 住家地址與小孩生日即可獲得三個合理推薦」。三題必須不擋路。
+ */
+export async function getFamilyPreference(): Promise<FamilyPreference> {
+  return (await getStoredFamilyPreference()) ?? DEFAULT_FAMILY_PREFERENCE;
+}
+
+/** 寫入或更新三題。理由同 saveHomeBase：單列表用 upsert。 */
+export async function saveFamilyPreference(
+  values: FamilyPreferenceInput,
+): Promise<void> {
+  await db
+    .insert(familyPreferences)
+    .values({ ...values, id: FAMILY_PREFERENCE_ID })
+    .onConflictDoUpdate({ target: familyPreferences.id, set: values });
 }
