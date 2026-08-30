@@ -16,7 +16,8 @@
 
 import Database from "better-sqlite3";
 
-import type { Child, DayType, FamilyPreference, Place } from "@/lib/db/schema";
+import { DEFAULT_FAMILY_PREFERENCE } from "@/lib/db/family-preference-input";
+import type { Child, DayType, FamilyPreference, Place, Rating } from "@/lib/db/schema";
 import {
   pickReferenceNote,
   recommend,
@@ -93,11 +94,26 @@ if (places.length === 0) {
   process.exit(1);
 }
 
-const familyPreference =
-  (db.prepare("select * from family_preferences where id='default'").get() as
-    | FamilyPreference
-    | undefined) ??
-  ({ id: "default", outdoorTendency: 0, maxParentEffort: 4, requiresMeal: false } as FamilyPreference);
+/**
+ * ⚠️ 這裡是 raw sqlite，欄位名是 snake_case。
+ *
+ * 原本這段直接 `as FamilyPreference`——那在資料表是空的時候看不出問題
+ * （fallback 接手了），但只要使用者在 /settings/preferences 存過一次，
+ * 就會拿到一個每個欄位都是 undefined 的物件。而 Stage 1 拿 undefined
+ * 去比大小不會丟錯，只會靜默放行所有地點。所以逐欄對應，不 cast。
+ */
+const familyPreferenceRow = db
+  .prepare("select * from family_preferences where id='default'")
+  .get() as Record<string, unknown> | undefined;
+
+const familyPreference: FamilyPreference = familyPreferenceRow
+  ? {
+      id: String(familyPreferenceRow.id),
+      outdoorTendency: Number(familyPreferenceRow.outdoor_tendency),
+      maxParentEffort: Number(familyPreferenceRow.max_parent_effort) as Rating,
+      requiresMeal: !!familyPreferenceRow.requires_meal,
+    }
+  : DEFAULT_FAMILY_PREFERENCE;
 
 const categoryPreferences = db.prepare("select * from category_preferences").all() as never[];
 
