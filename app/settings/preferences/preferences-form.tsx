@@ -9,11 +9,23 @@ import {
 } from "./actions";
 
 /**
- * 家庭偏好初始三題（設計架構書 §6.2）
+ * 家庭偏好初始三題（設計架構書 §6.2）——**目前只問其中兩題**
  *
  * 三題各自對應一個欄位，沒有第四題。§6.2 表格裡「類別權重」的來源寫的是
  * 「回饋累積學習」而不是初始三題——問使用者喜歡哪一類會得到審美偏好，
  * 而真正該學的是行為偏好（ADR-0018 的同一個論證）。
+ *
+ * ⚠️ **「是否需含用餐」暫時不問**（2026-08-31）。
+ *
+ * 它在設計架構書裡只出現一次——§6.2 表格第 187 行，意義欄是一個破折號。
+ * §7 的過濾表沒有它，§6.2 的地點語彙表也沒有任何「附近有得吃」的欄位，
+ * 所以推薦引擎讀不到它、就算讀得到也沒有資料可判斷。grep 全 lib/ 確認：
+ * requiresMeal 只出現在 schema 與驗證，沒有任何規則消費它。
+ *
+ * 這與 ADR-0016 記的兩個缺口是同一個形狀。留在畫面上會讓人以為有用，
+ * 所以先撤下——**欄位與驗證都保留**，等餐飲資料進來就放回去。
+ * 補法已經寫好了：需求補充 01 §A 的 Google Places 匯入，
+ * 那張表裡 `menuForChildren` 的用途欄寫的正是「對應是否需含用餐偏好」。
  *
  * **家長負擔上限是三題裡唯一的硬過濾條件**（§7.1），填錯會直接砍掉一批
  * 候選，而且推薦照樣出得來、沒有任何跡象。所以它問的是「撐得住到哪」這個
@@ -46,7 +58,6 @@ export interface PreferencesFormProps {
   initial: {
     outdoorTendency: number;
     maxParentEffort: Rating;
-    requiresMeal: boolean;
   };
   /** 從未設定過時為 true，用來調整按鈕文字 */
   isNew: boolean;
@@ -64,7 +75,6 @@ export function PreferencesForm({ initial, isNew }: PreferencesFormProps) {
   const [maxParentEffort, setMaxParentEffort] = useState<Rating>(
     initial.maxParentEffort,
   );
-  const [requiresMeal, setRequiresMeal] = useState(initial.requiresMeal);
 
   return (
     <form action={formAction} className="flex flex-col gap-8">
@@ -133,20 +143,6 @@ export function PreferencesForm({ initial, isNew }: PreferencesFormProps) {
           ：超過的地點會被直接剔除，不進入評分。選寬一點不會讓你被迫去爬山，
           選窄了卻會讓你看不到本來合適的地點。
         </p>
-      </fieldset>
-
-      <fieldset className="flex flex-col gap-2.5">
-        <legend className="text-sm font-medium">出門那趟需要順便解決一餐嗎？</legend>
-        <label className="flex cursor-pointer items-center gap-3 rounded-lg border border-black/15 dark:border-white/20 px-3.5 py-3">
-          <input
-            type="checkbox"
-            name="requiresMeal"
-            checked={requiresMeal}
-            onChange={(e) => setRequiresMeal(e.target.checked)}
-            className="size-4"
-          />
-          <span className="text-sm">需要，附近要有得吃</span>
-        </label>
       </fieldset>
 
       <div className="flex items-center gap-3">

@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 
 import { validateFamilyPreferenceInput } from "@/lib/db/family-preference-input";
-import { saveFamilyPreference } from "@/lib/db/queries";
+import { getStoredFamilyPreference, saveFamilyPreference } from "@/lib/db/queries";
 
 export interface SaveFamilyPreferenceState {
   status: "idle" | "saved" | "error";
@@ -18,11 +18,18 @@ export async function saveFamilyPreferenceAction(
   _prev: SaveFamilyPreferenceState,
   formData: FormData,
 ): Promise<SaveFamilyPreferenceState> {
+  /*
+   * 「是否需含用餐」目前不在畫面上（理由見 preferences-form.tsx 的註解），
+   * 所以 FormData 裡沒有這個欄位。**不能就這樣讓它變成 false**——
+   * 那會在使用者按下儲存的當下靜默清掉一個他填過的答案，而畫面上完全
+   * 看不出來發生了什麼。沿用已存的值，等這題放回去時原封不動。
+   */
+  const existing = await getStoredFamilyPreference();
+
   const result = validateFamilyPreferenceInput({
     outdoorTendency: String(formData.get("outdoorTendency") ?? ""),
     maxParentEffort: String(formData.get("maxParentEffort") ?? ""),
-    // 未勾選的 checkbox 不在 FormData 裡，get 回傳 null → 空字串 → false。
-    requiresMeal: String(formData.get("requiresMeal") ?? ""),
+    requiresMeal: existing?.requiresMeal ? "on" : "",
   });
 
   if (!result.ok) {

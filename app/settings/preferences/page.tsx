@@ -22,9 +22,13 @@ export default async function PreferencesSettingsPage() {
         </Link>
         <h1 className="text-2xl font-semibold">家庭偏好</h1>
         <p className="text-sm opacity-70 leading-relaxed">
+          {/*
+            不寫題數。§6.2 是三題，但「是否需含用餐」暫時撤下了
+            （見 preferences-form.tsx），寫死數字就會跟畫面對不起來。
+          */}
           {existing
-            ? "三題，隨時可以改。改完下一次推薦就會照新的來。"
-            : "三題，現在用的是預設值。不填也能收到推薦，填了會更準。"}
+            ? "隨時可以改。改完下一次推薦就會照新的來。"
+            : "現在用的是預設值。不填也能收到推薦，填了會更準。"}
         </p>
       </header>
 
@@ -50,14 +54,13 @@ export default async function PreferencesSettingsPage() {
       <PreferencesForm
         key={
           existing
-            ? `${existing.outdoorTendency}/${existing.maxParentEffort}/${existing.requiresMeal}`
+            ? `${existing.outdoorTendency}/${existing.maxParentEffort}`
             : "new"
         }
         isNew={existing === null}
         initial={{
           outdoorTendency: initial.outdoorTendency,
           maxParentEffort: initial.maxParentEffort as Rating,
-          requiresMeal: initial.requiresMeal,
         }}
       />
     </main>
