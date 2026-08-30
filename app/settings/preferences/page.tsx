@@ -38,6 +38,15 @@ export default async function PreferencesSettingsPage() {
         key 讓儲存成功後整個表單重新掛載，帶著剛存進資料庫的值。
         理由與出發點表單相同，見 app/settings/home/page.tsx 的註解。
       */}
+      {/*
+        ⚠️ 已知副作用（2026-08-31 實測，暫不處理）：值一改 key 就變，整個
+        表單重掛載，useActionState 的狀態跟著歸零——所以「已儲存」那行綠字
+        永遠來不及顯示。資料是存對的，只是少一句確認。
+
+        兩頁都有，因為這個 key 模式是共用的。要修得二選一：拿掉 key（上面
+        那個 DOM 與 state 脫鉤的 bug 就會回來），或把提示移出表單、由 page
+        依 ?saved=1 顯示。等落地頁做完、表單互動的樣貌定下來再一起決定。
+      */}
       <PreferencesForm
         key={
           existing
