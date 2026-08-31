@@ -26,9 +26,21 @@ export default async function Home() {
       </header>
 
       <div className="rounded-xl border border-dashed border-black/20 dark:border-white/25 p-4 text-sm leading-relaxed opacity-75">
-        推薦引擎與匯入器都已就緒。還缺推播與落地頁——在那之前，
-        這裡只有設定，沒有「今天去哪」的畫面。
+        推薦引擎、匯入器與落地頁都已就緒。還缺推播——
+        在那之前，你得自己打開這個 App 才看得到建議。
       </div>
+
+      {/*
+        落地頁的入口。推播上線後這是推播點進來的目的地，
+        在那之前它也是唯一能真正試用整套引擎的畫面。
+      */}
+      <Link
+        href="/today"
+        className="flex items-center justify-between rounded-xl border border-black/15 dark:border-white/25 bg-foreground/[0.04] px-4 py-4"
+      >
+        <span className="font-medium">今天去哪</span>
+        <span className="text-sm opacity-60">看今天的建議 →</span>
+      </Link>
 
       <nav className="flex flex-col gap-2">
         <Link
