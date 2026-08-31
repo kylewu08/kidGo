@@ -35,7 +35,7 @@ export function ResponseButtons({
 }) {
   if (response) {
     return (
-      <p className="rounded-xl border border-black/10 dark:border-white/15 px-4 py-3 text-sm opacity-70">
+      <p className="rounded-xl bg-surface px-4 py-3 text-sm text-muted">
         {ANSWERED[response] ?? "已記錄"}
       </p>
     );
@@ -43,7 +43,7 @@ export function ResponseButtons({
 
   return (
     <div className="flex flex-col gap-2">
-      <p className="text-sm font-medium">後來呢？</p>
+      <p className="text-xs font-medium tracking-[0.08em] text-muted">後來呢？</p>
       <div className="flex flex-wrap gap-2">
         {OPTIONS.map((o) => (
           <form key={o.value} action={respondToSuggestionAction}>
@@ -51,7 +51,7 @@ export function ResponseButtons({
             <input type="hidden" name="response" value={o.value} />
             <button
               type="submit"
-              className="rounded-lg border border-black/15 dark:border-white/20 px-3.5 py-2 text-sm"
+              className="rounded-full border border-surface-line px-4 py-2 text-sm hover:border-accent hover:text-accent"
               title={o.hint}
             >
               {o.label}
@@ -59,7 +59,7 @@ export function ResponseButtons({
           </form>
         ))}
       </div>
-      <p className="text-xs opacity-55">
+      <p className="text-xs leading-relaxed text-muted">
         這是系統唯一的長期學習訊號（§9.3）。跳過也沒關係，它不依賴你的勤勞。
       </p>
     </div>

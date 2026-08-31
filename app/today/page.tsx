@@ -1,7 +1,7 @@
 import Link from "next/link";
 
 import { upsertTodaySuggestion } from "@/lib/db/queries";
-import type { Recommendation, SlotKind } from "@/lib/recommend";
+import type { Recommendation } from "@/lib/recommend";
 import { buildToday } from "@/lib/today/build";
 import { ResponseButtons } from "./response-buttons";
 
@@ -26,12 +26,6 @@ export const dynamic = "force-dynamic";
 
 /** 可用時間窗的結束。之後應該可設定，先給一個不擋路的預設。 */
 const DEFAULT_AVAILABLE_UNTIL = "18:00";
-
-const SLOT_LABEL: Record<SlotKind, string> = {
-  primary: "今天建議",
-  backup: "備案",
-  explore: "換換口味",
-};
 
 const WEEKDAYS = ["日", "一", "二", "三", "四", "五", "六"];
 
@@ -73,62 +67,102 @@ export default async function TodayPage() {
     now,
   );
 
+  const primaryRec = result.slots.find((s) => s.slot === "primary") ?? null;
+  const backupRec = result.slots.find((s) => s.slot === "backup") ?? null;
+  const exploreRec = result.slots.find((s) => s.slot === "explore") ?? null;
+
   return (
-    <main className="mx-auto w-full max-w-md px-5 py-8 flex flex-col gap-6">
-      <header className="flex flex-col gap-2">
-        <Link href="/" className="text-sm opacity-60 hover:opacity-100">
+    <main className="mx-auto w-full max-w-md px-5 pt-6 pb-[calc(2rem+env(safe-area-inset-bottom))] flex flex-col gap-5">
+      <header className="flex flex-col gap-3">
+        <Link href="/" className="text-sm text-muted hover:text-foreground">
           ← 回首頁
         </Link>
-        <h1 className="text-2xl font-semibold">今天去哪</h1>
-        <p className="text-sm opacity-70">
-          {now.getMonth() + 1}/{now.getDate()}（週{WEEKDAYS[now.getDay()]}）
-          {" · "}
-          {data.currentWeather
-            ? `${data.currentWeather.condition} · 體感 ${data.currentWeather.apparentTempC}°C · 降雨 ${data.currentWeather.rainProbability}%`
-            : "這個時間點沒有預報資料"}
-          {" · "}可用到 {data.availableWindow.end}
-        </p>
+        <h1 className="text-[1.75rem] leading-none font-semibold tracking-tight">
+          今天去哪
+        </h1>
+
+        {/* 條件列。數字用等寬，重新整理時才不會左右跳動 */}
+        <dl className="flex flex-wrap items-baseline gap-x-4 gap-y-1 text-sm text-muted">
+          <div className="flex items-baseline gap-1.5">
+            <dt className="sr-only">日期</dt>
+            <dd className="tnum">
+              {now.getMonth() + 1}/{now.getDate()}
+            </dd>
+            <span>週{WEEKDAYS[now.getDay()]}</span>
+          </div>
+          {data.currentWeather && (
+            <>
+              <div className="flex items-baseline gap-1.5">
+                <dt className="sr-only">天氣</dt>
+                <dd>{data.currentWeather.condition}</dd>
+              </div>
+              <div className="flex items-baseline gap-1.5">
+                <dt>體感</dt>
+                <dd className="tnum text-foreground">
+                  {data.currentWeather.apparentTempC}°
+                </dd>
+              </div>
+              <div className="flex items-baseline gap-1.5">
+                <dt>降雨</dt>
+                <dd className="tnum text-foreground">
+                  {data.currentWeather.rainProbability}%
+                </dd>
+              </div>
+            </>
+          )}
+          <div className="flex items-baseline gap-1.5">
+            <dt>可用到</dt>
+            <dd className="tnum text-foreground">{data.availableWindow.end}</dd>
+          </div>
+        </dl>
       </header>
 
       {/* §10.3.5：路況降級必須明示，不得靜默使用低信心估值 */}
       {data.driveNotice && (
-        <p className="rounded-xl border border-amber-500/40 bg-amber-500/5 px-4 py-3 text-sm">
+        <p className="rounded-xl border border-warn/35 px-4 py-3 text-sm text-warn">
           ⚠ {data.driveNotice}
         </p>
       )}
 
       {/* §7.4 防線一：受限情境下偏好權重歸零 */}
       {result.preferenceSuppressed && (
-        <p className="rounded-xl border border-black/10 dark:border-white/15 px-4 py-3 text-sm opacity-75">
+        <p className="rounded-xl bg-surface px-4 py-3 text-sm text-muted">
           今天條件受限，已暫時忽略你們家的偏好，讓所有選項以原始分數競爭。
         </p>
       )}
 
       {result.slots.length === 0 ? (
         /* §9.1：不得沉默，也不得降低標準硬推 */
-        <section className="rounded-xl border border-black/15 dark:border-white/20 p-5 flex flex-col gap-2">
+        <section className="rounded-2xl bg-surface px-5 py-6 flex flex-col gap-2.5">
           <h2 className="text-lg font-semibold">今天不要出門</h2>
-          <p className="text-sm leading-relaxed opacity-80">
+          <p className="text-sm leading-relaxed">
             {result.noOutingReason ?? "今天沒有適合的地點。"}
           </p>
-          <p className="text-xs opacity-55">
+          <p className="text-xs leading-relaxed text-muted">
             這也是一個答案——它省下了糾結的成本。系統不會為了給出建議而降低標準。
           </p>
         </section>
       ) : (
-        <div className="flex flex-col gap-3">
-          {result.slots.map((r) => (
-            <SlotCard key={r.place.id} rec={r} />
-          ))}
+        /*
+         * 三個槽位用三個不同的元件，不是同一張卡換文字。
+         *
+         * P3「答案優先，非清單」：引擎分了主建議 / 備案 / 探索槽三種
+         * 語意，排版若給它們一樣的視覺權重，使用者看到的就是一個三項
+         * 清單而不是一個決定。這裡的層級差異是在還原決策層已經做過的判斷。
+         */
+        <div className="flex flex-col gap-4">
+          {primaryRec && <PrimaryCard rec={primaryRec} />}
+          {backupRec && <BackupCard rec={backupRec} />}
+          {exploreRec && <ExploreCard rec={exploreRec} />}
         </div>
       )}
 
       {/* ADR-0021：參考欄不是第四個推薦，必須連同剔除理由一起呈現 */}
       {data.referenceNote && (
-        <section className="rounded-xl border border-dashed border-black/20 dark:border-white/25 px-4 py-3.5 flex flex-col gap-1">
-          <p className="text-xs opacity-55">今天不行，但改天可以</p>
+        <section className="rounded-xl border border-dashed border-surface-line px-4 py-3.5 flex flex-col gap-1">
+          <p className="text-xs tracking-[0.08em] text-muted">今天不行，但改天可以</p>
           <p className="text-sm font-medium">{data.referenceNote.result.place.name}</p>
-          <p className="text-xs opacity-70">
+          <p className="text-xs text-muted">
             {`今天${REJECTION_LABEL[data.referenceNote.rejectedBy] ?? "條件不符"}，所以沒有進入建議。`}
           </p>
         </section>
@@ -136,7 +170,7 @@ export default async function TodayPage() {
 
       <ResponseButtons suggestionId={suggestion.id} response={suggestion.response} />
 
-      <p className="text-xs opacity-45 leading-relaxed">
+      <p className="text-xs leading-relaxed text-muted opacity-80">
         {data.placeCount} 個地點 → 硬過濾後剩 {result.scored.length} 個
         {data.preciseCount > 0 && ` · ${data.preciseCount} 個取得即時路況`}
       </p>
@@ -144,44 +178,162 @@ export default async function TodayPage() {
   );
 }
 
-function SlotCard({ rec }: { rec: Recommendation }) {
+/**
+ * 理由與警示。三個槽位共用，因為它們是決策層的輸出——
+ * 文字由 lib/recommend/reasons.ts 產生，UI 只負責排版（憲法第 9 條：
+ * 推播文案與推薦理由共用同一組規則模板，不由 UI 改寫）。
+ *
+ * **警示在三個層級都完整顯示**，不因為層級低就收起來。
+ * 高溫、降雨、估算車程都是安全與誠實的資訊（§10.3.5），
+ * 不是可以為了版面整潔而犧牲的裝飾。
+ */
+function Notes({ rec, dense }: { rec: Recommendation; dense?: boolean }) {
+  const size = dense ? "text-[0.8125rem]" : "text-sm";
   return (
-    <section className="rounded-xl border border-black/15 dark:border-white/20 p-4 flex flex-col gap-2">
-      <div className="flex items-baseline justify-between gap-2">
-        <span className="text-xs opacity-55">{SLOT_LABEL[rec.slot!]}</span>
-        <span className="text-xs opacity-45">
+    <>
+      {rec.reasons.length > 0 && (
+        <ul className={`flex flex-col gap-1 ${size}`}>
+          {rec.reasons.map((reason) => (
+            <li key={reason} className="flex gap-2">
+              <span aria-hidden className="select-none opacity-40">
+                —
+              </span>
+              <span>{reason}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+      {rec.warnings.length > 0 && (
+        <ul className={`flex flex-col gap-1 ${size} text-warn`}>
+          {rec.warnings.map((w) => (
+            <li key={w} className="flex gap-2">
+              <span aria-hidden className="select-none">
+                ⚠
+              </span>
+              <span>{w}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </>
+  );
+}
+
+/** 車程與出發時間。§7.5：沒去過的地方不給精確返家時間。 */
+function Trip({ rec, big }: { rec: Recommendation; big?: boolean }) {
+  return (
+    <p className={`flex flex-wrap items-baseline gap-x-3 gap-y-1 ${big ? "text-sm" : "text-[0.8125rem]"}`}>
+      <span>
+        車程 <span className="tnum">{rec.drive.outboundMinutes}</span> 分
+        <span className="opacity-60">
+          （{rec.drive.source === "precise" ? "即時" : "估算"}）
+        </span>
+      </span>
+      {rec.suggestedReturn && (
+        <span className="opacity-70">
+          <span className="tnum">{rec.suggestedReturn}</span> 到家
+        </span>
+      )}
+    </p>
+  );
+}
+
+/**
+ * 主建議。**出發時間是這一頁的主角。**
+ *
+ * §9.1 要求出發時間具體到分鐘，而這正是整個產品的原子——
+ * 使用者週六早上要的不是「哪裡不錯」，是「幾點出門」。
+ * 所以它是版面上最大的東西，比地點名稱還大。
+ */
+function PrimaryCard({ rec }: { rec: Recommendation }) {
+  return (
+    <section className="relative overflow-hidden rounded-2xl bg-surface">
+      {/* 左側的實色軸線。不用陰影分層——陰影在深色模式幾乎看不見 */}
+      <span aria-hidden className="absolute inset-y-0 left-0 w-1 bg-accent" />
+
+      <div className="flex flex-col gap-4 py-5 pl-6 pr-5">
+        <div className="flex items-baseline justify-between gap-3">
+          <span className="text-xs font-medium tracking-[0.08em] text-accent">
+            今天建議
+          </span>
+          <span className="text-xs text-muted">
+            {rec.status === "verified" ? "去過" : "還沒去過"}
+          </span>
+        </div>
+
+        <div className="flex flex-col gap-1">
+          <div className="flex items-baseline gap-2">
+            <span className="tnum text-[3.25rem] leading-[0.9] font-semibold tracking-tight">
+              {rec.suggestedDeparture}
+            </span>
+            <span className="text-base text-muted">出發</span>
+          </div>
+          <h2 className="text-xl font-semibold leading-snug">{rec.place.name}</h2>
+        </div>
+
+        <Trip rec={rec} big />
+        <Notes rec={rec} />
+      </div>
+    </section>
+  );
+}
+
+/**
+ * 備案。§7.3 保證它至少有一個室內選項，供天氣突變。
+ *
+ * 視覺上明顯退一階：只有外框、沒有底色、出發時間縮回內文大小。
+ * 它存在的意義是「主建議不成立時還有這個」，不是第二個答案。
+ */
+function BackupCard({ rec }: { rec: Recommendation }) {
+  return (
+    <section className="rounded-2xl border border-surface-line px-5 py-4 flex flex-col gap-3">
+      <div className="flex items-baseline justify-between gap-3">
+        <span className="text-xs font-medium tracking-[0.08em] text-muted">
+          備案
+        </span>
+        <span className="text-xs text-muted">
           {rec.status === "verified" ? "去過" : "還沒去過"}
         </span>
       </div>
 
-      <h2 className="text-lg font-semibold leading-snug">{rec.place.name}</h2>
+      <div className="flex items-baseline gap-2.5">
+        <span className="tnum text-lg font-semibold">{rec.suggestedDeparture}</span>
+        <h2 className="text-base font-medium leading-snug">{rec.place.name}</h2>
+      </div>
 
-      <p className="text-sm opacity-80">
-        車程 {rec.drive.outboundMinutes} 分
-        <span className="opacity-60">
-          （{rec.drive.source === "precise" ? "即時" : "估算"}）
+      <Trip rec={rec} />
+      <Notes rec={rec} dense />
+    </section>
+  );
+}
+
+/**
+ * 探索槽（§7.4 防同溫層）。
+ *
+ * 退到最低一階：沒有外框、沒有底色。**但不能拿掉。**
+ * §7.4 明文規定不得為了「提升推薦精準度」而移除探索槽——
+ * 它偶爾會推出使用者明知不會去的地點，那是保險費不是缺陷。
+ * 排版上把它做輕，是讓它不干擾決定，不是讓它消失。
+ */
+function ExploreCard({ rec }: { rec: Recommendation }) {
+  return (
+    <section className="px-1 flex flex-col gap-2">
+      <div className="flex items-baseline gap-2">
+        <span className="text-xs font-medium tracking-[0.08em] text-muted">
+          換換口味
         </span>
-        {" · "}
-        {rec.suggestedDeparture} 出發
-        {/* §7.5：沒去過的地方不給精確返家時間，停留時長只是估計值 */}
-        {rec.suggestedReturn && ` · ${rec.suggestedReturn} 到家`}
-      </p>
+        <span className="text-xs text-muted opacity-70">平常不會排到的類別</span>
+      </div>
 
-      {rec.reasons.length > 0 && (
-        <ul className="flex flex-col gap-0.5 text-sm opacity-80">
-          {rec.reasons.map((reason) => (
-            <li key={reason}>· {reason}</li>
-          ))}
-        </ul>
-      )}
+      <div className="flex items-baseline gap-2.5">
+        <span className="tnum text-base text-muted">{rec.suggestedDeparture}</span>
+        <h2 className="text-base font-medium leading-snug">{rec.place.name}</h2>
+      </div>
 
-      {rec.warnings.length > 0 && (
-        <ul className="flex flex-col gap-0.5 text-sm text-amber-700 dark:text-amber-400">
-          {rec.warnings.map((w) => (
-            <li key={w}>⚠ {w}</li>
-          ))}
-        </ul>
-      )}
+      <div className="text-muted">
+        <Trip rec={rec} />
+      </div>
+      <Notes rec={rec} dense />
     </section>
   );
 }
@@ -222,13 +374,13 @@ function Blocked({ status }: { status: { kind: string; message?: string } }) {
 
   return (
     <main className="mx-auto w-full max-w-md px-5 py-8 flex flex-col gap-5">
-      <Link href="/" className="text-sm opacity-60 hover:opacity-100">
+      <Link href="/" className="text-sm text-muted hover:text-foreground">
         ← 回首頁
       </Link>
       <h1 className="text-2xl font-semibold">{copy.title}</h1>
-      <p className="text-sm leading-relaxed opacity-75">{copy.body}</p>
+      <p className="text-sm leading-relaxed text-muted">{copy.body}</p>
       {status.message && (
-        <p className="rounded-lg border border-black/10 dark:border-white/15 px-3 py-2 font-mono text-xs opacity-60">
+        <p className="rounded-lg bg-surface px-3 py-2 font-mono text-xs text-muted">
           {status.message}
         </p>
       )}

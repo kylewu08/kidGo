@@ -1,26 +1,78 @@
 @import "tailwindcss";
 
+/*
+ * 色票（設計架構書 §1.3：主介面是週六早晨的一則推播，App 是設定與回饋介面）
+ *
+ * 這一頁的使用情境很窄：**週末早上、單手、掃一眼就要能決定。**
+ * 所以配色的工作不是好看，是把「主建議 / 備案 / 換換口味」這三個
+ * 語意差異表達出來——引擎那邊很努力分了三個槽位，排版拉平就白費了（P3）。
+ *
+ * accent 選深松綠：暖色系已經被警示（琥珀）佔走，而警示在這一頁很常出現
+ * （高溫、降雨、估算車程）。主色若也偏暖，兩者會互相稀釋。
+ */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #fbfaf8;
+  --foreground: #1a1917;
+  /* 主建議用。深松綠在淺底上有足夠對比，又不像藍那樣像連結 */
+  --accent: #1f4d3f;
+  --accent-ink: #f4f2ee;
+  /* 卡片底色。比背景略深一階，不用陰影就能分層 */
+  --surface: #f2efe9;
+  --surface-line: #e0dbd1;
+  --muted: #6b6659;
+  --warn: #8a5a12;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #12110f;
+    --foreground: #eae7e0;
+    /* 深色底下把松綠提亮，否則在近黑背景上會糊成一團 */
+    --accent: #7fc9ac;
+    --accent-ink: #10241d;
+    --surface: #1c1a17;
+    --surface-line: #2e2b26;
+    --muted: #9c968a;
+    --warn: #e0a94a;
+  }
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+  --color-accent: var(--accent);
+  --color-accent-ink: var(--accent-ink);
+  --color-surface: var(--surface);
+  --color-surface-line: var(--surface-line);
+  --color-muted: var(--muted);
+  --color-warn: var(--warn);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  /*
+   * 原本這裡硬寫 Arial，把 layout.tsx 載入的 Geist 整個蓋掉——
+   * 等於每次建置都下載兩套字型然後不用它們。
+   *
+   * 中文的部分刻意交給系統字型。CJK 網頁字型動輒數 MB，
+   * 而這一頁的使用情境是「週六早上掃一眼」，為了字型多等兩秒
+   * 是拿產品的核心情境去換視覺；系統字型（PingFang / Noto Sans TC）
+   * 在目標裝置上本來就夠好看。
+   */
+  font-family: var(--font-geist-sans), "PingFang TC", "Noto Sans TC",
+    "Hiragino Sans TC", "Microsoft JhengHei", system-ui, sans-serif;
+}
+
+/*
+ * 時間與數字用等寬並開表格數字。
+ * 「09:33 出發」是這個產品的原子——§9.1 規定出發時間須具體到分鐘。
+ * 比例字寬會讓數字在重新整理時左右跳動，等寬不會。
+ */
+.tnum {
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
 }
