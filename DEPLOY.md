@@ -138,11 +138,24 @@ KidGo 的 SQLite 是一個檔案，而它在容器裡。Watchtower 有新版就�
 
 ---
 
-## 四、預期會卡的地方
+## 四、已經踩過的坑
 
-ADR-0015 已經先記了一筆：`better-sqlite3` 是原生模組，**第一次建映像大概會卡一輪**。
-Dockerfile 用 bookworm（glibc）而不是 alpine（musl）就是為了讓預編譯的二進位檔能用；
-若仍失敗，訊息通常長得跟真正的原因很不一樣（`invalid ELF header` 之類）。
+**`npm ci` 在容器裡失敗，20 秒 exit 1**（2026-08-31，第一次 CI）。
+
+`better-sqlite3` 的安裝腳本是 `prebuild-install || node-gyp rebuild --release`
+——先試著下載預編譯檔，拿不到就當場從原始碼編。而 `node:20-bookworm-slim`
+沒有 `python3` / `make` / `g++`，於是兩條路都斷。
+
+**訊息只說 `npm ci` 失敗，完全不會提到缺編譯器**，而且失敗得很快，
+看起來不像編譯問題——這正是 ADR-0015 說「第一次部署要預期在原生模組上
+卡一輪」的那一關。
+
+已修：Dockerfile 在 `npm ci` 之前裝工具鏈。裝了之後，就算哪天上游不再
+發布對應 Node ABI 的預編譯檔，也只是變慢而不會建不起來。
+
+> 順帶一提，本機 `node_modules/better-sqlite3/build/Release/` 底下有 `.deps/`，
+> 那是 make 的產物——代表在 macOS 上它走的也是「從原始碼編譯」那條路，
+> 靠的是 Xcode command line tools。所以「本機能裝」從來就不保證「容器裡能裝」。
 
 NAS 若是 ARM 機種（Realtek / Marvell），要把 workflow 裡的
 `platforms: linux/amd64` 改成 `linux/arm64`。在 NAS 上跑 `uname -m`

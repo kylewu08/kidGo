@@ -21,6 +21,17 @@ FROM node:20-bookworm-slim
 
 WORKDIR /app
 
+# better-sqlite3 的安裝腳本是 `prebuild-install || node-gyp rebuild --release`：
+# 先試著下載預編譯檔，拿不到就當場從原始碼編。而 bookworm-slim 沒有編譯器，
+# 於是兩條路都斷——**第一次 CI 就是死在這裡，20 秒 exit 1**，
+# 因為它根本沒開始編就放棄了（訊息只說 `npm ci` 失敗，不會提到缺編譯器）。
+#
+# 裝了工具鏈之後，即使某天上游不再發布對應 Node ABI 的預編譯檔，
+# 也只是變慢而不會建不起來。
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends python3 make g++ ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
 # 先只複製 manifest，讓 npm ci 這層在原始碼變動時仍能命中快取
 COPY package.json package-lock.json ./
 RUN npm ci
