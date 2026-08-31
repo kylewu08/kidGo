@@ -1,21 +1,24 @@
 #!/usr/bin/env bash
 #
-# 產生 GHCR 的拉取憑證（ADR-0015）
+# 產生 Docker Hub 的拉取憑證（ADR-0015、ADR-0022）
 #
-# GHCR 是私有 registry，NAS 上的 Watchtower 要有憑證才拉得到映像。
+# 映像放在私有 repo，NAS 上的 **Watchtower** 要有憑證才檢查得到新版。
+#
+# ⚠️ **這個檔案救不了第一次拉取。** 它掛載給 Watchtower 容器，
+# 而第一次拉映像是 Container Manager 用 Docker daemon 的憑證做的——
+# 那是 DSM「登錄檔」設定或 `docker login` 的事。見 ADR-0022。
 # 這個檔案等同於 `docker login ghcr.io` 會產生的 ~/.docker/config.json，
 # 只是改成在本機做——NAS 不方便 SSH，產生好之後用 File Station 上傳。
 #
 # 用法：
 #   bash scripts/make_ghcr_config.sh
 #
-# token 要用 **classic** 的 Personal Access Token，不要用 fine-grained：
-# fine-grained 對 GHCR 的支援不完整，而且權限要逐一指定 repo，
-# 新 repo 不會自動納入。範圍只需要 read:packages。
+# 用 Docker Hub 的 **Access Token**（Account Settings → Personal access tokens），
+# 不要用登入密碼。權限選 Read-only 就夠——NAS 只需要拉，不需要推。
 
 set -euo pipefail
 
-USERNAME="kylewu08"
+USERNAME="kylewu08"   # Docker Hub 帳號，與 GitHub 的不一定相同
 OUTPUT="docker-config.json"
 
 if [ -e "$OUTPUT" ]; then
@@ -24,7 +27,7 @@ if [ -e "$OUTPUT" ]; then
 fi
 
 # -s 讓 token 不顯示在畫面上，也就不會留在終端機的捲動紀錄裡
-read -rsp "貼上 GitHub PAT（classic，範圍 read:packages）: " TOKEN
+read -rsp "貼上 Docker Hub Access Token（Read-only 即可）: " TOKEN
 echo
 
 if [ -z "$TOKEN" ]; then
@@ -37,7 +40,7 @@ AUTH=$(printf '%s:%s' "$USERNAME" "$TOKEN" | base64 | tr -d '\n')
 cat > "$OUTPUT" <<JSON
 {
   "auths": {
-    "ghcr.io": {
+    "https://index.docker.io/v1/": {
       "auth": "$AUTH"
     }
   }

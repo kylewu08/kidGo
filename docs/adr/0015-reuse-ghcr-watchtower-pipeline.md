@@ -1,6 +1,7 @@
 # ADR-0015：沿用既有的 GHCR + Watchtower 部署管線，並為 SQLite 掛持久卷
 
-- **狀態**：已採納（實作延後至引擎與匯入器完成後）
+- **狀態**：已採納，但 **registry 部分已被 [ADR-0022](0022-docker-hub-over-ghcr.md) 取代**
+  （2026-08-31：GHCR 改為 Docker Hub。其餘決定全部仍然有效）
 - **日期**：2026-08-26
 - **相關**：[ADR-0001](0001-sqlite-over-cloud-db.md)、[ADR-0010](0010-deploy-on-synology-nas.md)、設計架構書 v1.0 §9
 - **修正**：ADR-0010 中關於 DDNS、憑證與 CGNAT 的三項待辦

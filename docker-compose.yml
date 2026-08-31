@@ -7,7 +7,7 @@
 
 services:
   app:
-    image: ghcr.io/kylewu08/kidgo:latest
+    image: kylewu08/kidgo:latest
     container_name: kidgo
     restart: unless-stopped
     env_file:
@@ -49,9 +49,10 @@ services:
     restart: unless-stopped
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      # GHCR 是私有 registry，要憑證才拉得到。這個檔案等同 docker login
-      # 產生的東西，但因為 NAS 不方便 SSH，改成在本機產生再用 File Station
-      # 上傳（見 DEPLOY.md）。
+      # 私有 registry 要憑證才拉得到。這個檔案等同 docker login 產生的
+      # 東西，但因為 NAS 不方便 SSH，改成在本機產生再用 File Station
+      # 上傳（見 DEPLOY.md）。Watchtower 用它檢查更新——
+      # **它救不了第一次拉取**，那是 Docker daemon 的事（ADR-0022）。
       - ./docker-config.json:/config.json:ro
     # --scope 很重要：沒有它，Watchtower 會去更新 NAS 上「所有」容器，
     # 包含 01 與 07 那些不相干的服務。

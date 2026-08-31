@@ -4,7 +4,7 @@
 這裡只寫怎麼做。
 
 ```
-git push → GitHub Actions 建映像 → 推到 GHCR
+git push → GitHub Actions 建映像 → 推到 Docker Hub
                                       ↓
                   NAS 上的 Watchtower 每 5 分鐘檢查
                                       ↓
@@ -14,31 +14,42 @@ git push → GitHub Actions 建映像 → 推到 GHCR
 映像在 GitHub 上建、不在 NAS 建。改程式碼只要 `git push`，五分鐘內 NAS 會自己更新。
 
 - Repo：`git@github.com:kylewu08/kidGo.git`（private）
-- 映像：`ghcr.io/kylewu08/kidgo:latest`（**全小寫**，Docker tag 不接受大寫）
+- 映像：`kylewu08/kidgo:latest`（Docker Hub **私有** repo，全小寫）
 - 埠：**8008**（01 用 8006、07 用 8007）
+
+> **為什麼不是 GHCR**：原本是，2026-08-31 實機部署時發現
+> **DSM 的「登錄檔」憑證不會傳給 `docker compose`**，四種組合都拉不動。
+> 完整的查證過程與其他選項見 [ADR-0022](docs/adr/0022-docker-hub-over-ghcr.md)。
 
 ---
 
 ## 一、只需要做一次的設定
 
-> NAS 全程用 DSM 網頁介面（File Station + Container Manager）完成，不需要 SSH。
+> NAS 全程用 DSM 網頁介面（File Station + Container Manager）完成。
+> **1-3 若失敗就會需要 SSH**——理由見那一節。
 
-### 1-1 產生 GHCR 拉取憑證
+### 1-0 建立 Docker Hub 私有 repo 與權杖
 
-映像放在私有 registry，NAS 要有憑證才拉得到。
+1. Docker Hub 建一個 **private** repository：`kylewu08/kidgo`
+2. Account Settings → **Personal access tokens** → 新增
+   - 給 CI 推送的那個要 **Read & Write**
+   - 給 NAS 拉取的另開一個 **Read-only**
+3. GitHub repo → Settings → Secrets and variables → Actions，加兩個 secret：
+   - `DOCKERHUB_USERNAME`
+   - `DOCKERHUB_TOKEN`（Read & Write 那個）
 
-1. GitHub → Settings → Developer settings → **Personal access tokens →
-   Tokens (classic)** → Generate new token
-   - **要用 classic，不要用 fine-grained**——後者對 GHCR 支援不完整，
-     而且權限要逐一指定 repo，新 repo 不會自動納入
-   - 範圍只勾 **`read:packages`**
-2. 在本機執行，依提示貼上 token：
+### 1-1 產生 Watchtower 的拉取憑證
 
 ```bash
-bash scripts/make_ghcr_config.sh
+bash scripts/make_registry_config.sh
 ```
 
-產生的 `docker-config.json` 含有 token，已被 `.gitignore` 擋住。
+依提示貼上 **Read-only** 的 Docker Hub token，產生 `docker-config.json`
+（含 token，已被 `.gitignore` 擋住）。
+
+> ⚠️ **這個檔案只給 Watchtower 用，救不了第一次拉取。**
+> 它掛載進 Watchtower 容器，只在之後檢查更新時生效。第一次拉映像是
+> Container Manager 用 Docker daemon 的憑證做的——那是 1-3 的事。
 
 ### 1-2 準備 NAS 上的目錄
 
@@ -69,34 +80,21 @@ Dockerfile 已經把它設成 `/app/data/kidgo.db`，寫在 `.env` 裡只會有�
 
 `CLOUDFLARE_TUNNEL_TOKEN` 用既有的那條隧道即可，不必新建。
 
-### 1-3 在 DSM 裡登入 ghcr.io
+### 1-3 在 DSM 裡設定 Docker Hub 憑證
 
-**這一步不能省，而且 07 那份文件沒有。**
+Container Manager → **登錄檔（Registry）** → 選 **Docker Hub** → 設定 →
+編輯，填入 Docker Hub 帳號與 Read-only token。
 
-Container Manager → **登錄檔（Registry）** → 設定 → 新增：
-
-| 欄位 | 值 |
-|---|---|
-| 登錄檔 URL | `https://ghcr.io` |
-| 使用者名稱 | `kylewu08` |
-| 密碼 | 1-1 那個 classic PAT（`read:packages`） |
-
-> **為什麼 07 不需要這步**：`kylewu08/opportunity` 這個 package 是**公開**的
-> （2026-08-31 實測匿名拉取回 200），所以它從來不需要憑證——
-> 那套 `docker-config.json` 的流程其實一直沒被真正驗證過。
-> `kylewu08/kidgo` 是私有的（回 403）。
+> **這一步是整份文件裡最可能失敗的地方。** 2026-08-31 用 GHCR 時，
+> 無論登錄檔怎麼設、是不是「使用中」、token 新舊，`docker compose` 一律回
+> `Error response from daemon: denied`——**DSM 的登錄檔憑證不會傳給
+> compose**。改用 Docker Hub 是賭它的程式路徑不同（那個介面本來就是繞著
+> Docker Hub 設計的），**不是確定可行**。見 ADR-0022。
 >
-> **而 `docker-config.json` 救不了第一次拉取**：它掛載的位置是 Watchtower
-> 容器，只在 Watchtower 之後檢查更新時用得到。第一次拉映像是 Container
-> Manager 用 Docker daemon 自己的憑證做的，那份檔案它看不到。
-> 症狀是 `Error response from daemon: denied`。
->
-> **不要改用公開映像來繞過。** Dockerfile 有 `COPY . .`，映像層裡包含整份
-> 原始碼——把 package 設成公開等於把這個 private repo 的原始碼公開。
-
-登錄檔那步若不成功，備援是 Container Manager → **映像** → 新增 →
-從 registry 新增，手動拉 `ghcr.io/kylewu08/kidgo:latest`；拉下來之後
-映像在本機，compose 就不必再去 registry 拿。
+> 若這裡仍然 denied，唯一乾淨的解是在 NAS 上執行一次
+> `sudo docker login`（需要 SSH，也就需要與 NAS 同網段）——
+> `docker compose pull` 讀的是 root 的 `~/.docker/config.json`，
+> 而只有 `docker login` 會寫它。
 
 ### 1-4 建立 Container Manager 專案
 
@@ -168,6 +166,19 @@ KidGo 的 SQLite 是一個檔案，而它在容器裡。Watchtower 有新版就�
 ---
 
 ## 四、已經踩過的坑
+
+**Container Manager 拉映像回 `denied`**（2026-08-31，第一次實機部署）。
+
+DSM 的「登錄檔」憑證**不會傳給 `docker compose`**。四種組合全部失敗
+（沒加登錄檔／加了但非使用中／新舊 token／設為使用中），而同一個 token
+在本機取 manifest 回 HTTP 200——問題明確在 Synology 這一側。
+
+07 一直沒事，是因為 `kylewu08/opportunity` 這個映像是**公開**的
+（匿名拉取回 200），私有這條路從來沒被驗證過。
+
+這是換用 Docker Hub 的原因，完整查證見
+[ADR-0022](docs/adr/0022-docker-hub-over-ghcr.md)。
+
 
 **`npm ci` 在容器裡失敗，20 秒 exit 1**（2026-08-31，第一次 CI）。
 
