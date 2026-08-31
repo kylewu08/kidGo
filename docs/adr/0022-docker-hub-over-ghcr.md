@@ -1,6 +1,6 @@
 # ADR-0022：映像改推 Docker Hub，因為 DSM 的登錄檔憑證對 compose 無效
 
-- **狀態**：已採納
+- **狀態**：**已被 [ADR-0023](0023-public-image-without-source.md) 取代**（2026-09-01，尚未實際部署過）
 - **日期**：2026-08-31
 - **相關**：[ADR-0015](0015-reuse-ghcr-watchtower-pipeline.md)
 - **偏離**：ADR-0015「沿用 07 的 GHCR + Watchtower 管線」的 registry 部分

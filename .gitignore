@@ -49,5 +49,6 @@ next-env.d.ts
 /data/*.db-shm
 /data/*.db-wal
 
-# GHCR 拉取憑證，含 token（ADR-0015、scripts/make_ghcr_config.sh）
+# 已作廢的 registry 憑證檔（ADR-0023 移除了這個流程）。
+# 保留這條規則當安全網——它含 token，絕不能進版控。
 docker-config.json

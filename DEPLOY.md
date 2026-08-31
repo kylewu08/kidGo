@@ -4,7 +4,7 @@
 這裡只寫怎麼做。
 
 ```
-git push → GitHub Actions 建映像 → 推到 Docker Hub
+git push → GitHub Actions 建映像 → 推到 GHCR（公開）
                                       ↓
                   NAS 上的 Watchtower 每 5 分鐘檢查
                                       ↓
@@ -14,12 +14,14 @@ git push → GitHub Actions 建映像 → 推到 Docker Hub
 映像在 GitHub 上建、不在 NAS 建。改程式碼只要 `git push`，五分鐘內 NAS 會自己更新。
 
 - Repo：`git@github.com:kylewu08/kidGo.git`（private）
-- 映像：`kylewu08/kidgo:latest`（Docker Hub **私有** repo，全小寫）
+- 映像：`ghcr.io/kylewu08/kidgo:latest`（**公開**，全小寫）
 - 埠：**8008**（01 用 8006、07 用 8007）
 
-> **為什麼不是 GHCR**：原本是，2026-08-31 實機部署時發現
-> **DSM 的「登錄檔」憑證不會傳給 `docker compose`**，四種組合都拉不動。
-> 完整的查證過程與其他選項見 [ADR-0022](docs/adr/0022-docker-hub-over-ghcr.md)。
+> **公開的是映像，不是 repo。** 多階段建置讓最終映像不含原始碼——
+> `lib/`、`app/`、`docs/` 全部留在 builder 階段，設計架構書與 ADR 仍然私有。
+> 為什麼要這樣做見 [ADR-0023](docs/adr/0023-public-image-without-source.md)：
+> DSM 的登錄檔憑證不會傳給 `docker compose`，所以私有映像在這台 NAS 上
+> 拉不動，而唯一乾淨的解需要 SSH（需與 NAS 同網段）。
 
 ---
 
@@ -28,28 +30,21 @@ git push → GitHub Actions 建映像 → 推到 Docker Hub
 > NAS 全程用 DSM 網頁介面（File Station + Container Manager）完成。
 > **1-3 若失敗就會需要 SSH**——理由見那一節。
 
-### 1-0 建立 Docker Hub 私有 repo 與權杖
+### 1-1 把 GHCR 的 package 設為公開
 
-1. Docker Hub 建一個 **private** repository：`kylewu08/kidgo`
-2. Account Settings → **Personal access tokens** → 新增
-   - 給 CI 推送的那個要 **Read & Write**
-   - 給 NAS 拉取的另開一個 **Read-only**
-3. GitHub repo → Settings → Secrets and variables → Actions，加兩個 secret：
-   - `DOCKERHUB_USERNAME`
-   - `DOCKERHUB_TOKEN`（Read & Write 那個）
+**這是唯一需要在 GitHub 上做的設定，而且只做一次。**
 
-### 1-1 產生 Watchtower 的拉取憑證
+第一次 `git push` 讓 Actions 建置成功之後，package 才會存在：
 
-```bash
-bash scripts/make_registry_config.sh
-```
+GitHub → 你的頭像 → **Packages** → `kidgo` → Package settings →
+**Change visibility** → Public。
 
-依提示貼上 **Read-only** 的 Docker Hub token，產生 `docker-config.json`
-（含 token，已被 `.gitignore` 擋住）。
-
-> ⚠️ **這個檔案只給 Watchtower 用，救不了第一次拉取。**
-> 它掛載進 Watchtower 容器，只在之後檢查更新時生效。第一次拉映像是
-> Container Manager 用 Docker daemon 的憑證做的——那是 1-3 的事。
+> 公開的是**映像**，不是 repo。映像裡沒有 `lib/`、`app/`、`docs/`，
+> 也沒有 source map（builder 階段會刪掉，否則原始碼會躺在 `.map` 檔裡）。
+>
+> **不需要任何憑證檔。** 先前版本要產生 `docker-config.json` 並上傳，
+> 那一步已經完全移除——它掛給 Watchtower、救不了第一次拉取，
+> 而留著一個沒有作用的步驟正是先前繞遠路的原因。
 
 ### 1-2 準備 NAS 上的目錄
 
@@ -58,7 +53,6 @@ bash scripts/make_registry_config.sh
 ```
 /volume1/docker/kidgo/
 ├── docker-compose.yml     ← 從 repo 複製
-├── docker-config.json     ← 上一步產生的
 ├── .env                   ← 手動建立，見下
 └── data/                  ← 空資料夾，SQLite 會放在這裡
 ```
@@ -80,21 +74,18 @@ Dockerfile 已經把它設成 `/app/data/kidgo.db`，寫在 `.env` 裡只會有�
 
 `CLOUDFLARE_TUNNEL_TOKEN` 用既有的那條隧道即可，不必新建。
 
-### 1-3 在 DSM 裡設定 Docker Hub 憑證
+### 1-3 （不需要）設定 registry 憑證
 
-Container Manager → **登錄檔（Registry）** → 選 **Docker Hub** → 設定 →
-編輯，填入 Docker Hub 帳號與 Read-only token。
+映像是公開的，拉取不需要任何憑證。DSM 的「登錄檔」保持預設即可。
 
-> **這一步是整份文件裡最可能失敗的地方。** 2026-08-31 用 GHCR 時，
-> 無論登錄檔怎麼設、是不是「使用中」、token 新舊，`docker compose` 一律回
-> `Error response from daemon: denied`——**DSM 的登錄檔憑證不會傳給
-> compose**。改用 Docker Hub 是賭它的程式路徑不同（那個介面本來就是繞著
-> Docker Hub 設計的），**不是確定可行**。見 ADR-0022。
+> 這一節刻意留著而不是刪掉，因為**先前在這裡卡了很久**：
+> DSM 登錄檔的憑證不會傳給 `docker compose`，無論怎麼設、是不是「使用中」、
+> token 新舊，一律 `Error response from daemon: denied`。
+> 完整經過見 [ADR-0022](docs/adr/0022-docker-hub-over-ghcr.md) 與
+> [ADR-0023](docs/adr/0023-public-image-without-source.md)。
 >
-> 若這裡仍然 denied，唯一乾淨的解是在 NAS 上執行一次
-> `sudo docker login`（需要 SSH，也就需要與 NAS 同網段）——
-> `docker compose pull` 讀的是 root 的 `~/.docker/config.json`，
-> 而只有 `docker login` 會寫它。
+> 若哪天映像轉回私有，就會再次面對這個問題，屆時唯一乾淨的解是在 NAS 上
+> 執行一次 `sudo docker login`——需要 SSH，也就需要與 NAS 同網段。
 
 ### 1-4 建立 Container Manager 專案
 
@@ -176,8 +167,18 @@ DSM 的「登錄檔」憑證**不會傳給 `docker compose`**。四種組合全�
 07 一直沒事，是因為 `kylewu08/opportunity` 這個映像是**公開**的
 （匿名拉取回 200），私有這條路從來沒被驗證過。
 
-這是換用 Docker Hub 的原因，完整查證見
-[ADR-0022](docs/adr/0022-docker-hub-over-ghcr.md)。
+**根因比表面更前面一層**：`kylewu08/opportunity` 是 public repo，
+所以映像是公開的、從來不需要憑證。ADR-0015 把「07 能動」當成「這條路可行」
+的證據，但那條路的憑證部分從未被執行過——**把「沒出問題」當成「有效」**。
+
+最後的解法是把映像設為公開、同時用多階段建置讓映像不含原始碼。
+完整查證見 [ADR-0022](docs/adr/0022-docker-hub-over-ghcr.md) 與
+[ADR-0023](docs/adr/0023-public-image-without-source.md)。
+
+**source map 會洩漏原始碼**（2026-09-01）。`grep "本產品最有價值的資產" .next/`
+命中 `.next/server/chunks/ssr/*.js.map`——一次建置產生 64 個 `.map` 檔，
+連中文註解都在。Dockerfile 的 builder 階段會把它們刪掉；**這一行若被誤刪，
+症狀是靜默的**：映像照樣能跑，只是原始碼被公開了。
 
 
 **`npm ci` 在容器裡失敗，20 秒 exit 1**（2026-08-31，第一次 CI）。
