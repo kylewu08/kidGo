@@ -69,12 +69,41 @@ Dockerfile 已經把它設成 `/app/data/kidgo.db`，寫在 `.env` 裡只會有�
 
 `CLOUDFLARE_TUNNEL_TOKEN` 用既有的那條隧道即可，不必新建。
 
-### 1-3 建立 Container Manager 專案
+### 1-3 在 DSM 裡登入 ghcr.io
+
+**這一步不能省，而且 07 那份文件沒有。**
+
+Container Manager → **登錄檔（Registry）** → 設定 → 新增：
+
+| 欄位 | 值 |
+|---|---|
+| 登錄檔 URL | `https://ghcr.io` |
+| 使用者名稱 | `kylewu08` |
+| 密碼 | 1-1 那個 classic PAT（`read:packages`） |
+
+> **為什麼 07 不需要這步**：`kylewu08/opportunity` 這個 package 是**公開**的
+> （2026-08-31 實測匿名拉取回 200），所以它從來不需要憑證——
+> 那套 `docker-config.json` 的流程其實一直沒被真正驗證過。
+> `kylewu08/kidgo` 是私有的（回 403）。
+>
+> **而 `docker-config.json` 救不了第一次拉取**：它掛載的位置是 Watchtower
+> 容器，只在 Watchtower 之後檢查更新時用得到。第一次拉映像是 Container
+> Manager 用 Docker daemon 自己的憑證做的，那份檔案它看不到。
+> 症狀是 `Error response from daemon: denied`。
+>
+> **不要改用公開映像來繞過。** Dockerfile 有 `COPY . .`，映像層裡包含整份
+> 原始碼——把 package 設成公開等於把這個 private repo 的原始碼公開。
+
+登錄檔那步若不成功，備援是 Container Manager → **映像** → 新增 →
+從 registry 新增，手動拉 `ghcr.io/kylewu08/kidgo:latest`；拉下來之後
+映像在本機，compose 就不必再去 registry 拿。
+
+### 1-4 建立 Container Manager 專案
 
 DSM → **Container Manager** → 專案 → 新增，名稱 `kidgo`，
 路徑選 `/volume1/docker/kidgo`。
 
-### 1-4 Cloudflare Tunnel 加一個 Public Hostname
+### 1-5 Cloudflare Tunnel 加一個 Public Hostname
 
 Cloudflare Zero Trust → Networks → Tunnels → 選既有的隧道 → Public Hostname：
 
