@@ -38,7 +38,26 @@ RUN npm ci
 
 COPY . .
 
-RUN npm run build
+# `next build` 的「Collecting page data」會 import 每一個頁面模組，而
+# lib/db/index.ts **在模組載入時就開資料庫連線**（那是刻意的：讓 client
+# component 誤 import 時建置期就失敗，而不是 runtime 才出現難懂的錯誤）。
+#
+# 容器裡沒有 data/——它被 .dockerignore 排除，因為資料庫屬於持久卷而不是
+# 映像的內容。於是建置會死在：
+#
+#     TypeError: Cannot open database because the directory does not exist
+#         at lib/db/index.ts:14
+#
+# 所以給建置一個**丟棄用的**資料庫，建完就刪。先跑 migration 讓 schema
+# 存在，這樣建置期的資料庫與 runtime 結構一致，不會有「建得起來但跑不
+# 起來」或反過來的落差。
+#
+# ⚠️ 這個路徑刻意不是 /app/data：那裡是持久卷的掛載點，
+# 在映像裡先放一個檔案只會製造「這個檔案到底哪來的」的疑惑。
+RUN mkdir -p /tmp/kidgo-build \
+    && DATABASE_URL=/tmp/kidgo-build/build.db npm run db:migrate \
+    && DATABASE_URL=/tmp/kidgo-build/build.db npm run build \
+    && rm -rf /tmp/kidgo-build
 
 ENV NODE_ENV=production
 # 指向 compose 掛進來的持久卷。**這個路徑若指錯，資料會寫進容器層，
@@ -49,4 +68,7 @@ EXPOSE 3000
 
 # migration 先跑完再起應用。失敗就整個停下來——
 # 半套的 schema 配上會寫入的應用，比起不了服務危險得多。
-CMD ["sh", "-c", "npm run db:migrate && npm start"]
+#
+# -H 0.0.0.0 是明講的保險：綁到 127.0.0.1 的話容器外連不進來，
+# 而症狀是「容器在跑、埠也對映了，但就是連不到」，很難聯想到監聽位址。
+CMD ["sh", "-c", "npm run db:migrate && npm start -- -H 0.0.0.0 -p 3000"]

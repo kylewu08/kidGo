@@ -157,6 +157,27 @@ KidGo 的 SQLite 是一個檔案，而它在容器裡。Watchtower 有新版就�
 > 那是 make 的產物——代表在 macOS 上它走的也是「從原始碼編譯」那條路，
 > 靠的是 Xcode command line tools。所以「本機能裝」從來就不保證「容器裡能裝」。
 
+**`npm run build` 在容器裡失敗**（2026-08-31，第二次 CI）。
+
+```
+TypeError: Cannot open database because the directory does not exist
+    at lib/db/index.ts:14
+    at app/page.tsx
+```
+
+`next build` 的「Collecting page data」會 import 每一個頁面模組，而
+`lib/db/index.ts` **在模組載入時就開資料庫連線**。容器裡沒有 `data/`
+——它被 `.dockerignore` 排除，因為資料庫屬於持久卷而不是映像的內容。
+
+本機建得起來只是因為 `data/` 就在那裡。用
+`DATABASE_URL=/tmp/不存在的目錄/x.db npm run build` 可以在本機完整重現。
+
+已修：Dockerfile 用一個丟棄用的資料庫建置（先 migrate 再 build，建完刪掉），
+路徑刻意避開 `/app/data`，因為那是持久卷的掛載點。
+
+> 這兩個坑有同一個形狀：**本機環境裡「剛好存在」的東西，容器裡不存在。**
+> 一個是編譯器，一個是資料庫目錄。
+
 NAS 若是 ARM 機種（Realtek / Marvell），要把 workflow 裡的
 `platforms: linux/amd64` 改成 `linux/arm64`。在 NAS 上跑 `uname -m`
 可確認：`x86_64` → amd64。
