@@ -1,0 +1,60 @@
+# Synology NAS 用（ADR-0015）。放在 NAS 上的專案目錄，搭配同目錄的 .env。
+#
+# 映像不在本機也不在 NAS 建置，而是 GitHub Actions 建好推到 GHCR，
+# Watchtower 偵測到新版就自動拉下來重啟。改程式只要 git push。
+#
+# 埠的分配沿用既有慣例：01 用 8006、07 用 8007，KidGo 用 8008。
+
+services:
+  app:
+    image: ghcr.io/kylewu08/kidgo:latest
+    container_name: kidgo
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      - "8008:3000"
+    volumes:
+      # ⚠️ **這一行不能少。**
+      #
+      # KidGo 的 SQLite 是一個檔案，而它在容器裡。Watchtower 每 5 分鐘檢查、
+      # 有新版就「重建」容器——沒有持久卷的話，那個讓 07 變方便的自動更新
+      # 機制，在 KidGo 上會是一個定時資料銷毀器（ADR-0015）。
+      #
+      # 而 §6.4 說造訪紀錄永不刪除，那是本產品最有價值的資產（P5）。
+      # 遺漏這行的症狀是「用了兩週之後紀錄莫名其妙變少」，很難聯想到部署設定。
+      - /volume1/docker/kidgo/data:/app/data
+    labels:
+      - "com.centurylinklabs.watchtower.scope=kidgo"
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: kidgo_tunnel
+    restart: unless-stopped
+    environment:
+      # 沿用既有的那條隧道，不必新建（DEPLOY.md 明講可共用）。
+      # 每個專案各跑一個 cloudflared，是因為 Public Hostname 的 Service
+      # 要用容器名解析（http://kidgo:3000），而那只在同一個 compose
+      # 網路內解得到——別的專案的 cloudflared 看不到 kidgo 這個名字。
+      - TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN}
+    command: tunnel run
+    depends_on:
+      - app
+    labels:
+      - "com.centurylinklabs.watchtower.scope=kidgo"
+
+  watchtower:
+    image: containrrr/watchtower
+    container_name: kidgo_watchtower
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      # GHCR 是私有 registry，要憑證才拉得到。這個檔案等同 docker login
+      # 產生的東西，但因為 NAS 不方便 SSH，改成在本機產生再用 File Station
+      # 上傳（見 DEPLOY.md）。
+      - ./docker-config.json:/config.json:ro
+    # --scope 很重要：沒有它，Watchtower 會去更新 NAS 上「所有」容器，
+    # 包含 01 與 07 那些不相干的服務。
+    command: --interval 300 --cleanup --scope kidgo
+    labels:
+      - "com.centurylinklabs.watchtower.scope=kidgo"

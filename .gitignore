@@ -48,3 +48,6 @@ next-env.d.ts
 /data/*.db
 /data/*.db-shm
 /data/*.db-wal
+
+# GHCR 拉取憑證，含 token（ADR-0015、scripts/make_ghcr_config.sh）
+docker-config.json

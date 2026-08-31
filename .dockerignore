@@ -1,0 +1,17 @@
+# node_modules 絕對不能進去：better-sqlite3 是原生模組，
+# macOS 編出來的二進位檔在 linux 容器裡會壞（ADR-0015）
+node_modules
+.next
+
+# 資料庫是持久卷的內容，不是映像的內容。
+# 把它烤進映像會讓每次更新都把 NAS 上的紀錄蓋回建置當下的狀態。
+data
+*.db
+*.db-shm
+*.db-wal
+
+.git
+.env*
+!.env.example
+.DS_Store
+tsconfig.tsbuildinfo
