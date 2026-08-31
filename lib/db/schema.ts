@@ -317,7 +317,15 @@ export const contextOverrides = sqliteTable("context_overrides", {
 // Suggestion（推播建議）— 回饋迴路的樞紐
 // ---------------------------------------------------------------------------
 
-export type SuggestionKind = "morning" | "afternoon";
+/**
+ * 系統送出了什麼。
+ *
+ * `opened` 不是推播——它是使用者自己打開落地頁時產生的那一筆。
+ * 需要一個獨立的值，因為它的 `sentAt` 是「開啟時刻」而不是送出時刻，
+ * 日後算採納率時必須有辦法把它跟真正送出去的推播分開看。
+ * 推播上線後這個值不會消失：使用者仍然可以在沒有推播的日子自己開頁。
+ */
+export type SuggestionKind = "morning" | "afternoon" | "opened";
 
 /**
  * 使用者對建議的回應（ADR-0011）。

@@ -8,26 +8,37 @@
 
 import "server-only";
 
-import { asc, eq, sql } from "drizzle-orm";
+import { asc, eq, inArray, lt, sql } from "drizzle-orm";
 
+import {
+  isExpired,
+  ROUTE_CACHE_MAX_AGE_DAYS,
+  routeCacheId,
+} from "@/lib/routes/cache-key";
 import {
   DEFAULT_FAMILY_PREFERENCE,
   type FamilyPreferenceInput,
 } from "./family-preference-input";
 import { db } from "./index";
 import {
+  categoryPreferences,
   children,
   familyPreferences,
   homeBase,
   places,
+  routeCache,
+  suggestions,
   visits,
   type HomeBase,
   type NewHomeBase,
+  type CategoryPreference,
   type Child,
   type NewChild,
   type FamilyPreference,
   type NewPlace,
   type Place,
+  type Suggestion,
+  type SuggestionResponse,
   type Visit,
 } from "./schema";
 
@@ -207,4 +218,157 @@ export async function saveFamilyPreference(
     .insert(familyPreferences)
     .values({ ...values, id: FAMILY_PREFERENCE_ID })
     .onConflictDoUpdate({ target: familyPreferences.id, set: values });
+}
+
+// ---------------------------------------------------------------------------
+// RouteCache（§7.1 的成本控制、ADR-0013 的 30 天上限）
+// ---------------------------------------------------------------------------
+
+/**
+ * 讀取這個時段已經查過的車程。
+ *
+ * 存在的理由是**帳單**：精算車程要付費，而落地頁可以被重複整理。
+ * 沒有這一層的話，每按一次重新整理就是一次 Google Routes 呼叫。
+ *
+ * 分桶規則見 lib/routes/cache-key.ts。過期的當成沒有——**不刪，只是不用**，
+ * 刪除交給 purgeExpiredRouteCache，這樣讀取路徑上不會有寫入。
+ */
+export async function getCachedRoutes(
+  placeIds: string[],
+  direction: "outbound" | "return",
+  bucket: string,
+  now: Date,
+): Promise<Map<string, number>> {
+  if (placeIds.length === 0) return new Map();
+
+  const ids = placeIds.map((id) => routeCacheId(id, direction, bucket));
+  const rows = await db.select().from(routeCache).where(inArray(routeCache.id, ids));
+
+  const found = new Map<string, number>();
+  for (const row of rows) {
+    if (isExpired(new Date(row.fetchedAt), now)) continue;
+    found.set(row.placeId, row.durationMinutes);
+  }
+  return found;
+}
+
+/** 寫入這次查到的車程。同一個桶重複查就覆蓋，不累積歷史。 */
+export async function putCachedRoutes(
+  entries: { placeId: string; durationMinutes: number }[],
+  direction: "outbound" | "return",
+  bucket: string,
+  departureAt: Date,
+  now: Date,
+): Promise<void> {
+  if (entries.length === 0) return;
+
+  for (const entry of entries) {
+    const values = {
+      id: routeCacheId(entry.placeId, direction, bucket),
+      placeId: entry.placeId,
+      direction,
+      departureAt: departureAt.toISOString(),
+      durationMinutes: entry.durationMinutes,
+      fetchedAt: now.toISOString(),
+    };
+    await db
+      .insert(routeCache)
+      .values(values)
+      .onConflictDoUpdate({ target: routeCache.id, set: values });
+  }
+}
+
+/**
+ * 刪除超過 30 天的快取（ADR-0013）。
+ *
+ * 這**不是效能最佳化，是合規要求**：Google Maps Platform 的服務條款
+ * 不允許無限期保存路況結果。所以它必須真的刪，不能只是不使用。
+ */
+export async function purgeExpiredRouteCache(now: Date): Promise<void> {
+  const cutoff = new Date(now.getTime() - ROUTE_CACHE_MAX_AGE_DAYS * 24 * 3600_000);
+  await db.delete(routeCache).where(lt(routeCache.fetchedAt, cutoff.toISOString()));
+}
+
+// ---------------------------------------------------------------------------
+// Suggestion（§9.3 的採納率）
+// ---------------------------------------------------------------------------
+
+/** 今天這一筆（不分 kind）。一天最多一筆，理由見 upsertTodaySuggestion。 */
+export async function getSuggestionForDate(date: string): Promise<Suggestion | null> {
+  const rows = await db
+    .select()
+    .from(suggestions)
+    .where(eq(sql`substr(${suggestions.sentAt}, 1, 10)`, date))
+    .limit(1);
+  return rows[0] ?? null;
+}
+
+export interface TodaySuggestionSlots {
+  primaryPlaceId: string | null;
+  backupPlaceId: string | null;
+  explorePlaceId: string | null;
+  suggestedDeparture: string | null;
+  suggestedReturn: string | null;
+  noOutingReason: string | null;
+}
+
+/**
+ * 今天的建議：沒有就建一筆，有就更新槽位。**一天最多一筆。**
+ *
+ * 為什麼不是「開一次頁建一筆」：採納率是 §9.3 的長期主力訊號，
+ * 分母被重新整理灌大之後，系統會誤以為自己的建議一直被無視，
+ * 於是壓低那個類別的權重——只因為使用者多按了兩次 F5。
+ *
+ * 為什麼已回應之後就不再更新槽位：那筆紀錄要能回答「使用者當時看到的
+ * 是什麼」。天氣變了、排序跟著變，而使用者按「去了」時看到的是舊的那組
+ * ——事後把它改成新的，等於竄改了回饋的對象。
+ */
+export async function upsertTodaySuggestion(
+  date: string,
+  kind: "opened",
+  slots: TodaySuggestionSlots,
+  now: Date,
+): Promise<Suggestion> {
+  const existing = await getSuggestionForDate(date);
+
+  if (existing) {
+    if (existing.response !== null) return existing;
+    await db.update(suggestions).set(slots).where(eq(suggestions.id, existing.id));
+    return { ...existing, ...slots };
+  }
+
+  const row = {
+    id: crypto.randomUUID(),
+    sentAt: now.toISOString(),
+    kind,
+    ...slots,
+    contextOverrideId: null,
+    response: null,
+    respondedAt: null,
+    wentElsewherePlaceId: null,
+    responseNote: null,
+  };
+  await db.insert(suggestions).values(row);
+  return row;
+}
+
+/** 記下「去了／沒去」。ADR-0011 把「沒去」拆成三種，各自的後果不同。 */
+export async function recordSuggestionResponse(
+  id: string,
+  response: SuggestionResponse,
+  now: Date,
+): Promise<void> {
+  await db
+    .update(suggestions)
+    .set({ response, respondedAt: now.toISOString() })
+    .where(eq(suggestions.id, id));
+}
+
+// ---------------------------------------------------------------------------
+// CategoryPreference（§6.3 的學習權重）
+// ---------------------------------------------------------------------------
+
+/** 全部類別偏好。表很小（類別數固定），沒有分頁的必要。 */
+export async function listCategoryPreferences(): Promise<CategoryPreference[]> {
+  return db.select().from(categoryPreferences);
 }
