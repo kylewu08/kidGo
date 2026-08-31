@@ -1,7 +1,9 @@
 import Link from "next/link";
 
 import { upsertTodaySuggestion } from "@/lib/db/queries";
+import type { Place } from "@/lib/db/schema";
 import type { Recommendation } from "@/lib/recommend";
+import { mapsUrl } from "@/lib/places/maps-link";
 import { buildToday } from "@/lib/today/build";
 import { ResponseButtons } from "./response-buttons";
 
@@ -165,6 +167,8 @@ export default async function TodayPage() {
           <p className="text-xs text-muted">
             {`今天${REJECTION_LABEL[data.referenceNote.rejectedBy] ?? "條件不符"}，所以沒有進入建議。`}
           </p>
+          {/* 參考欄照定義就是「你還不知道存在的地方」，最需要這個連結 */}
+          <WhereLink place={data.referenceNote.result.place} />
         </section>
       )}
 
@@ -175,6 +179,28 @@ export default async function TodayPage() {
         {data.preciseCount > 0 && ` · ${data.preciseCount} 個取得即時路況`}
       </p>
     </main>
+  );
+}
+
+/**
+ * 「看看這是哪」（ADR-0011 修訂四）
+ *
+ * 承認並加速「跳出去查」這個行為，而不是假裝它不存在。**開的是地點頁
+ * 不是導航**——使用者想知道的是「這是什麼地方」，不是「怎麼開過去」。
+ *
+ * 不放照片是 ADR-0011 的明確決定：開放資料集通常沒有照片，
+ * 而地圖服務的照片有授權限制。
+ */
+function WhereLink({ place }: { place: Pick<Place, "name" | "lat" | "lng"> }) {
+  return (
+    <a
+      href={mapsUrl(place)}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="self-start text-[0.8125rem] text-accent underline underline-offset-4 decoration-accent/40 hover:decoration-accent"
+    >
+      看看這是哪 ↗
+    </a>
   );
 }
 
@@ -273,6 +299,7 @@ function PrimaryCard({ rec }: { rec: Recommendation }) {
 
         <Trip rec={rec} big />
         <Notes rec={rec} />
+        <WhereLink place={rec.place} />
       </div>
     </section>
   );
@@ -303,6 +330,7 @@ function BackupCard({ rec }: { rec: Recommendation }) {
 
       <Trip rec={rec} />
       <Notes rec={rec} dense />
+      <WhereLink place={rec.place} />
     </section>
   );
 }
@@ -334,6 +362,7 @@ function ExploreCard({ rec }: { rec: Recommendation }) {
         <Trip rec={rec} />
       </div>
       <Notes rec={rec} dense />
+      <WhereLink place={rec.place} />
     </section>
   );
 }
