@@ -23,7 +23,14 @@ services:
       #
       # 而 §6.4 說造訪紀錄永不刪除，那是本產品最有價值的資產（P5）。
       # 遺漏這行的症狀是「用了兩週之後紀錄莫名其妙變少」，很難聯想到部署設定。
-      - /volume1/docker/kidgo/data:/app/data
+      #
+      # **相對路徑**，Compose 會以這個 compose 檔所在的目錄為基準解析。
+      # 刻意不寫絕對路徑：專案資料夾放在哪個共用資料夾底下是使用者的自由
+      # （2026-09-01 實際放在 /volume1/Kyle Grace/kidgo，不是文件假設的
+      # /volume1/docker/kidgo），而硬寫絕對路徑的失敗訊息是
+      # `Bind mount failed: ... does not exist`，得回頭比對路徑才看得懂。
+      # 相對路徑還順帶避開了共用資料夾名稱含空白的引號問題。
+      - ./data:/app/data
     labels:
       - "com.centurylinklabs.watchtower.scope=kidgo"
 

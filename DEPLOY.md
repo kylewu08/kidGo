@@ -51,15 +51,22 @@ GitHub → 你的頭像 → **Packages** → `kidgo` → Package settings →
 用 File Station 建立，**不需要把程式碼放上去**（程式碼在映像裡）：
 
 ```
-/volume1/docker/kidgo/
+<你的專案資料夾>/          ← 放哪個共用資料夾底下都可以
 ├── docker-compose.yml     ← 從 repo 複製
 ├── .env                   ← 手動建立，見下
-└── data/                  ← 空資料夾，SQLite 會放在這裡
+└── data/                  ← 必須跟 compose 檔同一層
+    └── kidgo.db           ← 見「二、第一次部署之後」
 ```
+
+> compose 用的是**相對路徑** `./data`，以 compose 檔所在目錄為基準。
+> 所以專案資料夾放哪裡都行，但 **`data/` 必須跟 `docker-compose.yml` 同一層**。
 
 **`data/` 這個資料夾一定要先建。** compose 把它掛成持久卷，容器裡的
 `/app/data/kidgo.db` 就是它。少了它，Watchtower 每次更新都會把資料庫
 連同容器一起丟掉——見 §三的警告。
+
+好消息是**漏掉會硬失敗不會靜默**：Docker 對不存在的 bind mount 來源直接
+拒絕啟動（`Bind mount failed: ... does not exist`），不會偷偷幫你建一個。
 
 `.env` 內容：
 
@@ -136,7 +143,7 @@ sqlite3 data/kidgo.db "PRAGMA wal_checkpoint(TRUNCATE);"
 
 ```yaml
 volumes:
-  - /volume1/docker/kidgo/data:/app/data
+  - ./data:/app/data
 ```
 
 KidGo 的 SQLite 是一個檔案，而它在容器裡。Watchtower 有新版就重建容器——
