@@ -73,10 +73,9 @@ GitHub → 你的頭像 → **Packages** → `kidgo` → Package settings →
 ```
 CWA_API_KEY=...
 GOOGLE_ROUTES_API_KEY=...
-CLOUDFLARE_TUNNEL_TOKEN=...
 ```
 
-前兩個從本機的 `.env.local` 複製。`DATABASE_URL` **不要**放進去——
+兩個都從本機的 `.env.local` 複製。`DATABASE_URL` **不要**放進去——
 Dockerfile 已經把它設成 `/app/data/kidgo.db`，寫在 `.env` 裡只會有機會蓋錯。
 
 **不需要 `CLOUDFLARE_TUNNEL_TOKEN`。** 這個專案不跑自己的 cloudflared，
