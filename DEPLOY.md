@@ -79,7 +79,8 @@ CLOUDFLARE_TUNNEL_TOKEN=...
 前兩個從本機的 `.env.local` 複製。`DATABASE_URL` **不要**放進去——
 Dockerfile 已經把它設成 `/app/data/kidgo.db`，寫在 `.env` 裡只會有機會蓋錯。
 
-`CLOUDFLARE_TUNNEL_TOKEN` 用既有的那條隧道即可，不必新建。
+**不需要 `CLOUDFLARE_TUNNEL_TOKEN`。** 這個專案不跑自己的 cloudflared，
+對外由既有那條隧道轉發到區網 IP，理由見 1-5。
 
 ### 1-3 （不需要）設定 registry 憑證
 
@@ -106,10 +107,23 @@ Cloudflare Zero Trust → Networks → Tunnels → 選既有的隧道 → Public
 | 欄位 | 值 |
 |---|---|
 | Subdomain / Domain | 自訂，例如 `kidgo.kylewu.org` |
-| Service | `http://kidgo:3000` |
+| Service | `http://192.168.1.116:8008` |
 
-Service 用容器名解析，那只在同一個 compose 網路內有效——所以 KidGo 的
-compose 自己帶一個 `cloudflared`，跟 07 一樣。
+**沿用既有的那條隧道，只加一條 Public Hostname，不要新建隧道。**
+
+> ⚠️ **不要讓 KidGo 跑自己的 `cloudflared`。**
+>
+> 曾經這樣做過（Service 填 `http://kidgo:3000`，靠容器名解析）。用同一個
+> tunnel token 起第二個 cloudflared，等於同一條隧道有兩個連線點，
+> 而它們看得到的東西不一樣——07 的解析得到 `opportunity_inbox` 卻解析不到
+> `kidgo`，KidGo 的反過來。Cloudflare 會把流量分給任一個健康的連線點，
+> 分錯就 502。
+>
+> 2026-09-01 實測：KidGo 的 cloudflared 起來之後，`brain.kylewu.org`
+> 連打 12 次出現 1 次 502。**症狀是時好時壞，最難查的那種**，
+> 而且壞的是原本好好的另一個專案。
+>
+> 01 本來就是用區網 IP 掛在共用隧道上，照它做即可。
 
 ---
 

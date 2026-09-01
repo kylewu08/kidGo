@@ -13,6 +13,17 @@ services:
     env_file:
       - .env
     ports:
+      # 對外由**既有的那條** Cloudflare Tunnel 轉發到這個埠：
+      # Public Hostname 的 Service 填 `http://192.168.1.116:8008`。
+      #
+      # **這個專案刻意不跑自己的 cloudflared。** 曾經跑過，用同一個 tunnel
+      # token——那會讓同一條隧道出現兩個連線點，而它們看得到的東西不一樣：
+      # 07 的解析得到 opportunity_inbox 但解析不到 kidgo，KidGo 的反過來。
+      # Cloudflare 會把流量分給任一個健康的連線點，分錯就 502。
+      #
+      # 2026-09-01 實測，KidGo 的 cloudflared 起來之後 brain.kylewu.org
+      # 連打 12 次出現 1 次 502——**症狀是時好時壞，最難查的那種**。
+      # 01 本來就是用區網 IP 掛在共用隧道上，照它做即可。
       - "8008:3000"
     volumes:
       # ⚠️ **這一行不能少。**
@@ -34,21 +45,6 @@ services:
     labels:
       - "com.centurylinklabs.watchtower.scope=kidgo"
 
-  cloudflared:
-    image: cloudflare/cloudflared:latest
-    container_name: kidgo_tunnel
-    restart: unless-stopped
-    environment:
-      # 沿用既有的那條隧道，不必新建（DEPLOY.md 明講可共用）。
-      # 每個專案各跑一個 cloudflared，是因為 Public Hostname 的 Service
-      # 要用容器名解析（http://kidgo:3000），而那只在同一個 compose
-      # 網路內解得到——別的專案的 cloudflared 看不到 kidgo 這個名字。
-      - TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN}
-    command: tunnel run
-    depends_on:
-      - app
-    labels:
-      - "com.centurylinklabs.watchtower.scope=kidgo"
 
   watchtower:
     image: containrrr/watchtower
