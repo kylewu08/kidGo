@@ -76,6 +76,8 @@ export function makeChild(overrides: Partial<Child> = {}): Child {
     napWindows: [{ start: "12:30", end: "14:30" }],
     bedTime: "20:30",
     mobility: "stroller",
+    // 預設不設限——選填欄位不該改變既有測試的行為（ADR-0025）
+    attentionSpanMinutes: null,
     notes: null,
     ...overrides,
   };

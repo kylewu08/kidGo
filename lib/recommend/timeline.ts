@@ -102,13 +102,17 @@ export function buildTimeline(
   now: Date,
   availableWindow: TimeWindow,
   drive: DriveEstimate,
+  /**
+   * 實際停留多久。不給就用地點的先驗。
+   * 由 effectiveStayMinutes 算出（ADR-0025）——小孩的專注度可能比
+   * 地點的先驗短，而**幾點到家**正是午睡衝突判斷的依據。
+   */
+  stayMinutes: number = place.typicalDurationMinutes,
 ): TripTimeline {
   const windowStart = atClock(now, availableWindow.start);
   const departAt = new Date(Math.max(now.getTime(), windowStart.getTime()));
   const arriveAt = new Date(departAt.getTime() + drive.outboundMinutes * MS_PER_MINUTE);
-  const leaveAt = new Date(
-    arriveAt.getTime() + place.typicalDurationMinutes * MS_PER_MINUTE,
-  );
+  const leaveAt = new Date(arriveAt.getTime() + stayMinutes * MS_PER_MINUTE);
   const homeAt = new Date(leaveAt.getTime() + drive.returnMinutes * MS_PER_MINUTE);
   return { departAt, arriveAt, leaveAt, homeAt };
 }

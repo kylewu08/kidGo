@@ -15,6 +15,7 @@ import { ageInMonths } from "@/lib/schedule/napStage";
 import { applyStage3 } from "./diversity";
 import { applyStage1, effectiveLimits } from "./filters";
 import { explain } from "./reasons";
+import { effectiveStayMinutes } from "./stay";
 import { breakdownForChild, shouldSuppressPreference, totalScore } from "./scoring";
 import { buildTimeline, forecastPeak, formatClock } from "./timeline";
 import type {
@@ -92,6 +93,7 @@ function scorePlace(
     context.timestamp,
     limits.availableWindow,
     drive,
+    effectiveStayMinutes(place, context.children),
   );
 
   const perChild = context.children.map((child) => {
@@ -197,6 +199,7 @@ export {
   type CoverageResult,
   type CoverageScenario,
 } from "./coverage";
+export { effectiveStayMinutes } from "./stay";
 export { breakdownForChild, totalScore, shouldSuppressPreference } from "./scoring";
 export { explain, REASON_THRESHOLDS } from "./reasons";
 export { formatClock, driveFor, buildTimeline } from "./timeline";

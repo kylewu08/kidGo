@@ -1,0 +1,1 @@
+ALTER TABLE `children` ADD `attention_span_minutes` integer;

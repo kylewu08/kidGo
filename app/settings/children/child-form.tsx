@@ -45,6 +45,8 @@ interface Defaults {
   bedTime: string;
   mobility: string;
   naps: { start: string; end: string }[];
+  /** 空字串代表不設限（ADR-0025） */
+  attentionSpanMinutes: string;
   notes: string;
 }
 
@@ -70,6 +72,7 @@ function defaultsFrom(state: ChildFormState, child?: Child): Defaults {
       naps: padNaps(
         r.napStarts.map((start, i) => ({ start, end: r.napEnds[i] ?? "" })),
       ),
+      attentionSpanMinutes: r.attentionSpanMinutes,
       notes: r.notes,
     };
   }
@@ -81,6 +84,8 @@ function defaultsFrom(state: ChildFormState, child?: Child): Defaults {
     bedTime: child?.bedTime ?? "20:30",
     mobility: child?.mobility ?? "stroller",
     naps: padNaps(child?.napWindows ?? defaultNapWindows("one_nap")),
+    attentionSpanMinutes:
+      child?.attentionSpanMinutes != null ? String(child.attentionSpanMinutes) : "",
     notes: child?.notes ?? "",
   };
 }
@@ -180,6 +185,29 @@ export function ChildForm({ child }: { child?: Child }) {
             <option key={m} value={m}>{CHILD_LABELS.mobility[m]}</option>
           ))}
         </select>
+      </Field>
+
+      {/*
+        選填。留空＝不設限，沿用地點的先驗時長（ADR-0025）。
+        使用者原話：「目前的年紀 1 個小時左右大概是專注度的上限。」
+      */}
+      <Field
+        label="專注時長（選填）"
+        hint="在一個地方大概撐多久。留空表示不設限。這會影響「幾點到家」，而那是午睡判斷的依據。"
+      >
+        <div className="flex items-center gap-2">
+          <input
+            name="attentionSpanMinutes"
+            type="number"
+            min={5}
+            max={480}
+            step={5}
+            placeholder="例如 60"
+            defaultValue={d.attentionSpanMinutes}
+            className={`${inputClass} w-32`}
+          />
+          <span className="text-sm opacity-70">分鐘</span>
+        </div>
       </Field>
 
       <Field label="備註">

@@ -41,6 +41,7 @@ const child: Child = {
   napWindows: [{ start: "13:00", end: "15:00" }],
   bedTime: "20:30",
   mobility: "walks_short",
+  attentionSpanMinutes: null,
   notes: null,
 };
 

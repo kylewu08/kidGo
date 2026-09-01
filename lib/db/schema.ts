@@ -227,6 +227,18 @@ export const children = sqliteTable("children", {
     .default(sql`'[]'`),
   bedTime: text("bed_time").notNull(),
   mobility: text("mobility").$type<Mobility>().notNull(),
+  /**
+   * 這個小孩在一個地方大概能專注多久（分鐘）。**選填**（ADR-0025）。
+   *
+   * 停留時長原本只是地點的屬性（遊戲場先驗 90 分、圖書館 60 分），
+   * 但使用者指出真實行為不是那樣：「好玩或有時間就多待，沒時間就早點走」，
+   * 而 20 個月大的小孩不論去哪都是**大約一小時**——那是小孩的上限，
+   * 不是地點的性質。
+   *
+   * 留 null 表示不設限，沿用地點的先驗時長。會隨年齡改變，所以跟
+   * napStage 一樣是慢變數而不是常數。
+   */
+  attentionSpanMinutes: integer("attention_span_minutes"),
   notes: text("notes"),
 });
 

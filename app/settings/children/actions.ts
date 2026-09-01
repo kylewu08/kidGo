@@ -24,6 +24,7 @@ function readChildForm(fd: FormData): RawChildInput {
     wakeTime: text(fd, "wakeTime"),
     bedTime: text(fd, "bedTime"),
     mobility: text(fd, "mobility"),
+    attentionSpanMinutes: text(fd, "attentionSpanMinutes"),
     napStarts: fd.getAll("napStart").map(String),
     napEnds: fd.getAll("napEnd").map(String),
     notes: text(fd, "notes"),

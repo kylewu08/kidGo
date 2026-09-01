@@ -43,6 +43,7 @@ export interface RawChildInput {
   /** 成對的午睡窗，長度相同；兩個都空白的那一組會被忽略 */
   napStarts: string[];
   napEnds: string[];
+  attentionSpanMinutes: string;
   notes: string;
 }
 
@@ -103,6 +104,23 @@ export function validateChildInput(raw: RawChildInput): ChildValidation {
     return { ok: false, message: "這個作息階段需要至少一段午睡時間" };
   }
 
+  /*
+   * 專注時長是**選填**（ADR-0025）：留空表示不設限，沿用地點的先驗時長。
+   *
+   * 上限訂 480 分（8 小時）——超過那個數字不是專注度，是填錯了。
+   * 下限 5 分同理：填 1 分鐘會讓每個地點的停留時間都變成 1 分鐘，
+   * 而那不會有任何錯誤訊息，只會讓推薦悄悄失真。
+   */
+  const spanRaw = raw.attentionSpanMinutes.trim();
+  let attentionSpanMinutes: number | null = null;
+  if (spanRaw !== "") {
+    const n = Number(spanRaw);
+    if (!Number.isInteger(n) || n < 5 || n > 480) {
+      return { ok: false, message: "專注時長請填 5 到 480 之間的整數分鐘，或留空" };
+    }
+    attentionSpanMinutes = n;
+  }
+
   return {
     ok: true,
     value: {
@@ -113,6 +131,7 @@ export function validateChildInput(raw: RawChildInput): ChildValidation {
       napWindows,
       bedTime: raw.bedTime,
       mobility: raw.mobility as Mobility,
+      attentionSpanMinutes,
       notes: raw.notes.trim() || null,
     },
   };

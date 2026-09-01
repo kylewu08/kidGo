@@ -10,6 +10,7 @@
 import type { Child, Place } from "@/lib/db/schema";
 import { facilityCoversAge } from "@/lib/domain/age-bands";
 import { ageInMonths } from "@/lib/schedule/napStage";
+import { effectiveStayMinutes } from "./stay";
 import { THRESHOLDS } from "./thresholds";
 import { buildTimeline, driveFor, forecastPeak, remainingMinutes } from "./timeline";
 import type {
@@ -60,8 +61,13 @@ function rejectionFor(
 
   // --- 2. 時間：去程 + 停留 + 回程 ------------------------------------------
   // §7.1 明列三段，回程用它自己的值——早上出發與下午返程是不同的路況。
+  // 停留時長用**實際會待多久**，不是地點的先驗（ADR-0025）。
+  // 高估它會把遠一點但其實來得及的地方誤判成 not_enough_time——
+  // 而那正是使用者實際會去的那種（開一小時到和平島，玩一小時就回家）。
   const requiredMinutes =
-    drive.outboundMinutes + place.typicalDurationMinutes + drive.returnMinutes;
+    drive.outboundMinutes +
+    effectiveStayMinutes(place, context.children) +
+    drive.returnMinutes;
   if (remainingMinutes(timestamp, limits.availableWindow) < requiredMinutes) {
     return "not_enough_time";
   }

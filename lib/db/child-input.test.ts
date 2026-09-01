@@ -18,6 +18,7 @@ const valid: RawChildInput = {
   mobility: "stroller",
   napStarts: ["12:30", ""],
   napEnds: ["14:30", ""],
+  attentionSpanMinutes: "",
   notes: "",
 };
 
