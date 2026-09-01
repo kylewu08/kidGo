@@ -46,7 +46,6 @@ export const REASON_THRESHOLDS = {
   maxReasons: 3,
 } as const;
 
-const RAIN_LOOKAHEAD_HOURS = 3;
 const RAIN_WARNING_PROBABILITY = 40;
 const HEAT_WARNING_TEMP = 31;
 
@@ -172,18 +171,24 @@ export function explain({
     );
   }
 
-  const after = new Date(timeline.homeAt.getTime() + RAIN_LOOKAHEAD_HOURS * 3600_000);
-  const later = forecastPeak(context.weather, timeline.leaveAt, after);
-  if (later && later.rainProbability >= RAIN_WARNING_PROBABILITY) {
-    warnings.push(`${formatClock(timeline.leaveAt)} 之後降雨機率 ${later.rainProbability}%`);
+  /*
+   * 天氣警示看的是**行程期間**（出發 → 到家），不是離開之後。
+   *
+   * 原本降雨是從 leaveAt 往後看 3 小時，那產生了 2026-09-01 實際觀察到的
+   * 矛盾：主建議是純戶外公園、16:18 才到家，**完全沒有降雨警示**，
+   * 而備案與探索槽都有——因為它們離開得早，往後看的區間剛好落在 40%
+   * 那一格。**待得越久、警示反而越少**，正好反過來。
+   *
+   * 使用者要知道的是「這趟會不會淋到雨」。departAt → homeAt 已經涵蓋
+   * 去程、停留與返程，所以同一個區間也拿來判斷高溫。
+   */
+  const during = forecastPeak(context.weather, timeline.departAt, timeline.homeAt);
+
+  if (during && during.rainProbability >= RAIN_WARNING_PROBABILITY) {
+    warnings.push(`這趟期間降雨機率 ${during.rainProbability}%`);
   }
 
-  const during = forecastPeak(context.weather, timeline.departAt, timeline.homeAt);
-  if (
-    during &&
-    during.apparentTempC >= HEAT_WARNING_TEMP &&
-    place.indoorType !== "indoor"
-  ) {
+  if (during && during.apparentTempC >= HEAT_WARNING_TEMP && place.indoorType !== "indoor") {
     warnings.push(`體感 ${during.apparentTempC}°C，記得補水`);
   }
 

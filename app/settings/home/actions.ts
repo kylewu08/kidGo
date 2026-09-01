@@ -32,5 +32,8 @@ export async function saveHomeBaseAction(
   await saveHomeBase(result.value);
   revalidatePath("/settings/home");
   revalidatePath("/");
+  // /today 讀的是同一份設定。少了這行，用戶端的 Router Cache 可能
+  // 在改完設定後仍然顯示舊的推薦——而畫面上完全看不出是快取。
+  revalidatePath("/today");
   return { status: "saved" };
 }
