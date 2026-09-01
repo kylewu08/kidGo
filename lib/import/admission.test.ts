@@ -19,8 +19,13 @@ function record(overrides: Partial<SourceRecord> = {}): SourceRecord {
 
 describe("入場測試（ADR-0019）", () => {
   it("只有名稱與座標的地點被擋下來", () => {
-    // 觀光景點資料集裡的廟宇、古厝、牌坊都長這樣：Google Maps 全都有。
-    expect(admit(record({ category: "museum" })).admitted).toBe(false);
+    // 觀光景點資料集裡的廟宇、古厝、牌坊、步道都長這樣：Google Maps 全都有。
+    //
+    // 例子從 museum 換成 trail，因為 museum 已於 ADR-0027 進入豁免清單。
+    // trail 留在這裡不是隨手挑的——2026-09-02 查過北部有 107 筆步道，
+    // **刻意沒有放行**：對幼兒多半過不了適齡與家長負擔，
+    // 講得出「Google 分不到這個粒度」不等於填得上結構性空缺。
+    expect(admit(record({ category: "trail" })).admitted).toBe(false);
   });
 
   it("帶有停留時長的地點放行，因為那是 §6.2 的「實際能撐多久」", () => {
@@ -79,14 +84,20 @@ describe("入場測試（ADR-0019）", () => {
     expect(admit(record({ category: "library" })).admitted).toBe(true);
   });
 
-  it("類別豁免清單維持在三項", () => {
+  it("類別豁免清單維持在四項", () => {
     // 這個測試守的是 ADR-0020 的判準而不是一段程式碼：
     // 每加一項都要說得出它填補哪一個結構性空缺，所以要先改 ADR。
-    // 長到五項以上代表判準第 2 條沒在守門，該檢討的是整體設計。
+    // 長到六項以上代表判準第 2 條沒在守門，該檢討的是整體設計。
+    //
+    // museum 是第四項（ADR-0027）。加它的證據是覆蓋率診斷：五個情境有
+    // 三個未達標，缺口都指向「室內選項只有圖書館一種」。同一輪查證裡
+    // 步道 107 筆、農場 18 筆、海邊 4 筆**沒有**加進來——講得出粒度理由
+    // 不等於填得上空缺。
     expect(CATEGORIES_ADMITTED_ON_THEIR_OWN).toEqual([
       "parenting_center",
       "inclusive_playground",
       "library",
+      "museum",
     ]);
   });
 });

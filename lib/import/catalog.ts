@@ -103,6 +103,15 @@ export async function fetchResources(datasetId: string): Promise<DatasetResource
  * （基隆海域遊憩是 Big5，其餘目前都是 UTF-8），
  * 讓 adapter 各自處理 Buffer 只會讓每個 adapter 重複同一段解碼邏輯。
  */
+/** 下載原始位元組。壓縮檔來源用這個——解碼成字串會毀掉它。 */
+export async function downloadBytes(url: string): Promise<Buffer> {
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`下載失敗：HTTP ${response.status} ${url}`);
+  }
+  return Buffer.from(await response.arrayBuffer());
+}
+
 export async function downloadText(url: string, encoding = "utf-8"): Promise<string> {
   const response = await fetch(url);
   if (!response.ok) {

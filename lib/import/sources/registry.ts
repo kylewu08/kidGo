@@ -10,7 +10,13 @@
 
 import type { SourceDataset } from "@/lib/db/schema";
 
+import { readZipEntry } from "../zip";
+
 import type { SourceRecord } from "../types";
+import {
+  ATTRACTIONS_DATASET_ID,
+  toSourceRecords as attractions,
+} from "./attractions";
 import { LIBRARIES_DATASET_ID, toSourceRecords as libraries } from "./libraries";
 import {
   PARENTING_CENTERS_DATASET_ID,
@@ -31,7 +37,13 @@ export interface SourceDefinition {
   /** 基隆海域遊憩是 Big5，其餘目前都是 UTF-8 */
   encoding?: string;
   sourceDataset: SourceDataset;
-  parse: (text: string) => SourceRecord[];
+  /** 文字來源用這個 */
+  parse?: (text: string) => SourceRecord[];
+  /**
+   * 壓縮檔來源用這個。觀光資訊資料庫只提供 zip，
+   * 而解壓需要位元組不是解碼過的字串——用 parse 會拿到亂碼。
+   */
+  parseZip?: (buffer: Buffer) => SourceRecord[];
 }
 
 export const SOURCES: readonly SourceDefinition[] = [
@@ -48,6 +60,15 @@ export const SOURCES: readonly SourceDefinition[] = [
     datasetId: LIBRARIES_DATASET_ID,
     sourceDataset: "library",
     parse: (text) => libraries(JSON.parse(text)),
+  },
+  {
+    key: "museums",
+    label: "觀光資訊資料庫－景點（只收博物館／美術館）",
+    datasetId: ATTRACTIONS_DATASET_ID,
+    resourceDescription: "觀光資料標準V2.1—景點JSON",
+    sourceDataset: "tourism_spot",
+    // 唯一一個 zip 來源，所以走 parseZip 而不是 parse。
+    parseZip: (buf) => attractions(JSON.parse(readZipEntry(buf, "AttractionList.json").toString("utf8").replace(/^\uFEFF/, ""))),
   },
   {
     key: "parenting-centers",

@@ -32,11 +32,22 @@ import type { ObservedFieldName, SourceRecord } from "./types";
  * - `library`：免費、室內、有冷氣、低放電。**§7.3 的備案槽位要求
  *   至少一個室內選項**——2026-08-29 匯入 789 筆全戶外公園後，
  *   三個槽位只填得出一個，就是少了這一項（ADR-0020）
+ * - `museum`：室內、有冷氣、放電低但可奔跑（§6.2 拿美術館當例子解釋
+ *   為什麼需要「可奔跑空間」與「家長負擔」兩個欄位）。加入的證據是
+ *   覆蓋率診斷：五個情境有三個未達標，缺口都指向「室內只有圖書館一種」
+ *   （ADR-0027）
+ *
+ * ⚠️ **上面那句「農場、步道、海邊少了也照樣填得滿」已經被量測推翻。**
+ * 寫的時候是假設三個槽位填得滿；2026-08-29 的診斷顯示五個情境有三個
+ * 填不滿。所以判準第 2 條現在是**支持**再放類別進來的理由，不是反對。
+ * 但仍要逐個看證據——步道 107 筆對幼兒過不了適齡、農場 18 筆、海邊 4 筆，
+ * 那些補不上任何缺口（2026-09-02 實測），所以沒有加進來。
  */
 export const CATEGORIES_ADMITTED_ON_THEIR_OWN: readonly Category[] = [
   "parenting_center",
   "inclusive_playground",
   "library",
+  "museum",
 ] as const;
 
 export type AdmissionVerdict =

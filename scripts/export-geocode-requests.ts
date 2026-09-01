@@ -33,7 +33,7 @@ function csvEscape(value: string): string {
 async function exportOne(source: SourceDefinition): Promise<void> {
   const resources = await fetchResources(source.datasetId);
   const resource = pickResource(resources, source.datasetId, source.resourceDescription);
-  const records = source.parse(await downloadText(resource.downloadUrl, source.encoding));
+  const records = source.parse!(await downloadText(resource.downloadUrl, source.encoding));
 
   // 只送「會被匯入、但缺座標」的地址。入場測試擋掉的送去比對是浪費額度
   // （每日 1 萬筆），而且會讓結果檔混進永遠用不到的資料。

@@ -17,7 +17,8 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import Database from "better-sqlite3";
 import { drizzle } from "drizzle-orm/better-sqlite3";
 
-import { downloadText, fetchResources, pickResource } from "@/lib/import/catalog";
+import { downloadBytes,
+  downloadText, fetchResources, pickResource } from "@/lib/import/catalog";
 import { importRecords, type ImportReport } from "@/lib/import/run";
 import { findSource, SOURCES, type SourceDefinition } from "@/lib/import/sources/registry";
 import {
@@ -63,8 +64,10 @@ async function importOne(
   const resource = pickResource(resources, source.datasetId, source.resourceDescription);
 
   console.log(`  資源「${resource.description || "(無名稱)"}」 ${resource.format}`);
-  const text = await downloadText(resource.downloadUrl, source.encoding);
-  const records = source.parse(text);
+  // 壓縮檔來源要位元組，文字來源要解碼過的字串——兩者不能互換。
+  const records = source.parseZip
+    ? source.parseZip(await downloadBytes(resource.downloadUrl))
+    : source.parse!(await downloadText(resource.downloadUrl, source.encoding));
   console.log(`  解析出 ${records.length} 筆`);
 
   return importRecords(store, source.sourceDataset, records, { geocode });
