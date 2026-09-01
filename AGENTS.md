@@ -118,36 +118,64 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 
 commit 訊息與 ADR 的規則見 [`CONTRIBUTING.md`](CONTRIBUTING.md)。
 
-## 目前狀態（2026-08-26）
+## 目前狀態（2026-09-02）
 
-從 v0.2 遷移到 v1.0，**決策層已完成**。對照表在 [ADR-0008](docs/adr/0008-adopt-spec-v1.md)。
+**已部署上線**：`https://kidgo.kylewu.org`（Synology NAS，`git push` 後五分鐘自動更新）。
 
 | 區域 | 狀態 |
 |------|------|
-| `lib/db/`、`lib/domain/` | ✅ v1.0。11 張表、§11 的領域參數 |
-| `lib/recommend/` | ✅ v1.0。三階段、七因子、防同溫層、理由分流 |
-| `lib/weather/`、`lib/routes/`、`lib/schedule/` | ✅ 未受影響 |
-| `app/settings/` | ✅ 出發點與小孩設定沿用 |
-| **匯入器** | 🔜 **下一項**。Phase 1 的起點（§13.1） |
-| 家庭偏好 UI（初始三題） | 🔜 schema 已就位，缺畫面 |
-| 推播、落地頁 | 🔜 尚未開始 |
-| 部署 | 📋 方案已定（[ADR-0015](docs/adr/0015-reuse-ghcr-watchtower-pipeline.md)），延後至匯入器完成後 |
+| `lib/db/`、`lib/domain/` | ✅ v1.0。§11 的領域參數 |
+| `lib/recommend/` | ✅ 三階段、七因子、防同溫層、理由分流、參考欄、覆蓋率診斷、當日意圖 |
+| `lib/weather/`、`lib/routes/` | ✅ CWA 與 Google Routes 都接通，路況有快取 |
+| `lib/import/` | ✅ 3 個 adapter、1405 筆地點、冪等已用真實資料驗證 |
+| `lib/today/` | ✅ 組裝層（推播排程之後會共用） |
+| `app/settings/` | ✅ 出發點、小孩、家庭偏好 |
+| `app/today/` | ✅ 落地頁 |
+| 部署 | ✅ GHCR 公開映像 + Watchtower（[ADR-0023](docs/adr/0023-public-image-without-source.md)） |
+| **PWA 基礎** | 🔜 **下一項**。§9.4 是推播的前置條件 |
+| 推播 | 🔜 需要 PWA 先做完 |
+| 快速標記 | 🔜 必須搭在推播回饋之後（[ADR-0018](docs/adr/0018-quick-marking-not-preference-swiping.md)） |
 
-`npm test` 221 個全過、`npm run lint` 無警告、`npx tsc --noEmit` 無錯、`npm run build` 成功。
-資料庫目前有出發點與一位小孩，**沒有地點**（等匯入器）。
+`npm test` 400 個全過、`npm run lint` 無警告、`npx tsc --noEmit` 無錯、`npm run build` 成功。
 
-### 下一步：開放資料匯入器（§10.1）
+### 下一步：PWA 基礎（§9.4）
 
-1. 下載五類開放資料（遊戲場清冊、親子館、公園設施、觀光景點、圖書館）
-2. 正規化並套用 `lib/domain/category-priors.ts` 的先驗值，全部標 `category_prior`
-3. 全臺照收，**半徑不在匯入階段篩**——匯入器與住家位置無關，
-   半徑是查詢時的條件（[ADR-0017](docs/adr/0017-radius-as-query-filter.md)）
-4. **重複匯入必須冪等**，且不得覆蓋 `fieldSources` 非 `category_prior` 的欄位
-   （規則見 [`docs/資料模型草案.md`](docs/資料模型草案.md) §7）
-5. 匯入階段**不呼叫 Google**（[ADR-0013](docs/adr/0013-geometric-baseline-drive-estimate.md)）
+§9.4 標明「必讀」：**iOS 的 Web Push 只在 PWA 被加入主畫面後可用**。
+`public/` 目前只有 Next 的預設 SVG。要做三件：manifest 與圖示、
+「加入主畫面」引導（§9.4 硬性要求，且未完成前須明講推播不會運作）、
+Service Worker（Web Push 的必要條件）。
 
-之後：家庭偏好三題 → 推播 → 落地頁。
+**PWA 不是順手做的美化，是推播的前置條件。**
 
-### 兩個已知的規格缺口（[ADR-0016](docs/adr/0016-spec-gaps-found-in-implementation.md)）
+### 資料的現況與缺口
 
-實作 Stage 1 時發現，都需要改資料模型所以尚未動手。
+1405 筆：一般公園 684、圖書館 616、共融／特色遊戲場 105。**只有三個類別。**
+
+覆蓋率診斷（`scripts/diagnose-coverage.ts`）五個情境有三個未達標，
+缺口都指向同一件事：**室內選項只有圖書館一種**。
+連帶的後果是三個槽位常常填不滿——前三名不得同類別（§7.3），
+而掉一個類別就湊不齊。
+
+已知缺的來源：親子館 201 筆等 TGOS 座標；基隆市沒有公園的開放資料集；
+海邊／農場／步道一筆都沒有（所以當日意圖的「想去遠一點的」按了沒東西）。
+
+### 已知的規格缺口
+
+實作時發現，都是「§6 定義了概念但沒有欄位能回答它」這一型：
+
+| # | 缺口 | 狀態 |
+|---|------|------|
+| 1 | 「需預約」沒有欄位 | [ADR-0016](docs/adr/0016-spec-gaps-found-in-implementation.md) 提議中 |
+| 2 | 「避開人多」沒有欄位 | 同上，提議中 |
+| 3 | 「是否需含用餐」沒有規則讀它 | UI 已撤下，等餐飲資料 |
+| 4 | `filters.ts` 的估算車程警示文案誤導 | 未決。前 8 名以外只是沒被精算，路況並未失敗 |
+| 5 | 小孩的專注時長 | ✅ 已補（[ADR-0025](docs/adr/0025-attention-span-caps-stay.md)） |
+
+### 待決清單
+
+- 需求補充 01 的三處修正（停止條件、30 天快取矛盾、「想去」的角色）
+- 首頁重做與深色模式（討論到一半，見 session 紀錄）
+- 停留時間是否根本不該是地點的屬性（[ADR-0025](docs/adr/0025-attention-span-caps-stay.md) 末段）
+- 午睡衝突從警示改為排序因子（使用者真正的約束是「12:00 前到家」，不是車程幾分鐘）
+- 手動新增地點的**形態**（[ADR-0024](docs/adr/0024-manual-places-allowed.md) 只確立可以做）
+- 「已儲存」提示被 key 重掛載吃掉（兩個表單頁的註解裡有記）
