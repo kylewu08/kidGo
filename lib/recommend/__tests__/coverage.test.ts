@@ -5,6 +5,7 @@ import {
   COVERAGE_TARGET,
   diagnoseCoverage,
   diagnoseScenario,
+  importedOnly,
 } from "../coverage";
 import type { CoverageBaseline } from "../coverage";
 import { CATEGORY_PRIORS } from "@/lib/domain/category-priors";
@@ -189,5 +190,32 @@ describe("情境", () => {
     // 情境訂得比實際溫和，最惡劣情境就沒有測到最惡劣的情況。
     // 2026-08-29 板橋實測體感 38°C。
     expect(heat.apparentTempC).toBe(38);
+  });
+});
+
+describe("診斷只算匯入資料（ADR-0024）", () => {
+  /**
+   * 手動新增一旦能讓診斷變綠，覆蓋率就失去意義——使用者補幾個洞，
+   * 數字好看了，但真正該補的資料來源一個都沒補。
+   */
+  it("手動新增的地點不列入存活數", () => {
+    const imported = place("p1", "park");
+    const manual = place("p2", "park", { sourceDataset: "manual" });
+
+    const withManual = diagnoseCoverage([imported, manual], baseline);
+    const withoutManual = diagnoseCoverage([imported], baseline);
+
+    expect(withManual.map((r) => r.survivors)).toEqual(
+      withoutManual.map((r) => r.survivors),
+    );
+  });
+
+  it("importedOnly 過濾掉 manual，其餘保留", () => {
+    const places = [
+      place("a", "library"),
+      place("b", "park", { sourceDataset: "manual" }),
+      place("c", "parenting_center"),
+    ];
+    expect(importedOnly(places).map((p) => p.id)).toEqual(["a", "c"]);
   });
 });

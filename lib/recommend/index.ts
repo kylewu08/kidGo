@@ -192,6 +192,7 @@ export {
   COVERAGE_TARGET,
   diagnoseCoverage,
   diagnoseScenario,
+  importedOnly,
   type CoverageBaseline,
   type CoverageResult,
   type CoverageScenario,

@@ -334,10 +334,24 @@ export function diagnoseScenario(
   };
 }
 
+/**
+ * 診斷只計算**匯入來的**地點，手動新增的排除在外（ADR-0024）。
+ *
+ * 手動地點會出現在推薦裡——它們是真的地方。但如果它們也算進覆蓋率，
+ * 使用者自己補幾個洞就能讓診斷變綠，而**真正的覆蓋率沒有任何改善**。
+ * 診斷存在的目的是逼資料來源擴充；讓它被手動輸入安撫，等於拆掉那個壓力。
+ *
+ * 這是 ADR-0024 開放手動新增時配套的解藥，不是可有可無的細節。
+ */
+export function importedOnly(places: readonly Place[]): readonly Place[] {
+  return places.filter((p) => p.sourceDataset !== "manual");
+}
+
 export function diagnoseCoverage(
   places: readonly Place[],
   baseline: CoverageBaseline,
   scenarios: readonly CoverageScenario[] = COVERAGE_SCENARIOS,
 ): CoverageResult[] {
-  return scenarios.map((scenario) => diagnoseScenario(places, baseline, scenario));
+  const imported = importedOnly(places);
+  return scenarios.map((scenario) => diagnoseScenario(imported, baseline, scenario));
 }

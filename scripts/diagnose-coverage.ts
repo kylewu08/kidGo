@@ -91,7 +91,7 @@ const baseline: CoverageBaseline = {
   date: new Date("2026-09-05T00:00:00"),
 };
 
-console.log(`地點 ${places.length} 個 · 小孩 ${children.length} 位 · 車程上限 ${home.maxDrive} 分`);
+console.log(`匯入地點 ${places.filter((p) => p.sourceDataset !== "manual").length} 個（手動新增不計，ADR-0024）· 小孩 ${children.length} 位 · 車程上限 ${home.maxDrive} 分`);
 console.log(
   `停止條件：存活 ≥ ${COVERAGE_TARGET.minSurvivors}、` +
     `類別 ≥ ${COVERAGE_TARGET.minCategories}、室內 ≥ ${COVERAGE_TARGET.minWeatherProof}\n`,
