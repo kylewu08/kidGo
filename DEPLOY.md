@@ -178,6 +178,21 @@ KidGo 的 SQLite 是一個檔案，而它在容器裡。Watchtower 有新版就�
 
 ## 四、已經踩過的坑
 
+**容器跑在 UTC，時間整整差 8 小時**（2026-09-01，部署後第一次實際使用）。
+
+畫面顯示「14:59 出發」而台北時間是 22:59。Dockerfile 沒設 `TZ`，Node 就用
+UTC——而這個產品的每一個判斷都建立在本地時間上：可用時間窗、午睡區間、
+天氣時段對應、平日／假日、跨日改算明天。
+
+**症狀最麻煩的地方是畫面看起來完全正常**，只是把晚上的建議當成下午給出去。
+
+07 沒踩到是因為它的 `.env` 有 `TIMEZONE=Asia/Taipei`，那是 Python 應用
+自己讀的變數；Node 用的是作業系統的 `TZ`，機制不同。
+
+已修：Dockerfile 設 `ENV TZ=Asia/Taipei` 並明確安裝 `tzdata`
+（slim 映像不保證帶 `/usr/share/zoneinfo`，少了它 `TZ` 會靜默退回 UTC）。
+
+
 **Container Manager 拉映像回 `denied`**（2026-08-31，第一次實機部署）。
 
 DSM 的「登錄檔」憑證**不會傳給 `docker compose`**。四種組合全部失敗

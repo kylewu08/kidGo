@@ -19,6 +19,23 @@
 FROM node:20-bookworm-slim AS base
 WORKDIR /app
 
+# ⚠️ **時區必須明講。**
+#
+# 沒設 TZ 的話 Node 走 UTC，而這個產品的每一個判斷都建立在本地時間上：
+# 可用時間窗、午睡區間、天氣時段對應、平日／假日、跨日改算明天。
+# 2026-09-01 實測，容器裡顯示「14:59 出發」而台北時間是 22:59——
+# **整整偏移 8 小時，而畫面上看起來完全正常**，只是把晚上的建議
+# 當成下午給出去。
+#
+# tzdata 明確裝上：slim 映像不保證帶 /usr/share/zoneinfo，
+# 少了它 TZ=Asia/Taipei 會靜默退回 UTC。
+ENV TZ=Asia/Taipei
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends tzdata \
+    && ln -snf /usr/share/zoneinfo/$TZ /etc/localtime \
+    && echo $TZ > /etc/timezone \
+    && rm -rf /var/lib/apt/lists/*
+
 # better-sqlite3 的安裝腳本是 `prebuild-install || node-gyp rebuild`：
 # 拿不到預編譯檔就當場編。bookworm-slim 沒有編譯器，兩條路都斷——
 # **第一次 CI 就是死在這裡，20 秒 exit 1**，而訊息只說 `npm ci` 失敗。
