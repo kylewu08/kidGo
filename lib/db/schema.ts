@@ -17,6 +17,8 @@
  */
 
 import { sql } from "drizzle-orm";
+
+import type { DayIntent } from "@/lib/domain/day-intent";
 import { integer, real, sqliteTable, text } from "drizzle-orm/sqlite-core";
 
 // ---------------------------------------------------------------------------
@@ -297,6 +299,14 @@ export const categoryPreferences = sqliteTable("category_preferences", {
 
 /** AI 可以覆寫的推薦條件，範圍由 §8 限定，不得擴充。 */
 export interface ContextOverrideValues {
+  /**
+   * 今天大人想去哪一類（ADR-0026）。
+   *
+   * **這是 §8 五項之外的第六項。** §8 明文限定可覆寫的範圍，
+   * 加這一項是刻意的偏離，理由見 ADR-0026：模型裡跟喜好有關的東西
+   * 全是慢變數，但「大人今天想幹嘛」是快變數。
+   */
+  dayIntent?: DayIntent;
   maxParentEffort?: Rating;
   availableWindow?: TimeWindow;
   maxDriveMinutes?: number;

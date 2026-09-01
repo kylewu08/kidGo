@@ -24,6 +24,7 @@ import {
 import { fetchDriveMinutes } from "@/lib/routes/matrix";
 import { departureBucket } from "@/lib/routes/cache-key";
 import { fetchCwaForecast } from "@/lib/weather/cwa";
+import type { DayIntent } from "@/lib/domain/day-intent";
 import { resolveTarget, type DayTarget } from "./target";
 import type { CountyName } from "@/lib/weather/townships";
 
@@ -74,6 +75,8 @@ export interface BuildTodayOptions {
   availableUntil: string;
   cwaApiKey: string | undefined;
   routesApiKey: string | undefined;
+  /** 今天想去哪一類（ADR-0026）。只對本次有效，不寫入任何設定。 */
+  dayIntent?: DayIntent | null;
 }
 
 export async function buildToday(options: BuildTodayOptions): Promise<TodayData> {
@@ -157,6 +160,7 @@ export async function buildToday(options: BuildTodayOptions): Promise<TodayData>
     availableWindow: target.window,
     familyPreference,
     categoryPreferences,
+    contextOverride: options.dayIntent ? { dayIntent: options.dayIntent } : undefined,
   };
 
   // --- 精算車程 -------------------------------------------------------------

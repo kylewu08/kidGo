@@ -121,6 +121,19 @@ export const SCORING = {
     survivorsFewerThan: 5,
   },
 
+  /**
+   * 當日意圖的加分（ADR-0026），單位是**總分 100 分制的點數**，
+   * 不是 0–1 的因子——它加在加權總分之外，見 day-intent.ts。
+   *
+   * 12 分是起始值，刻意大於天氣因子在室內外之間造成的差距
+   * （2026-09-01 實算約 7.4 分），否則按了鍵卻換不動排序。
+   * **尚未經過實際觀察校準**——CONTRIBUTING 規定 tune 必須寫出觸發調整的
+   * 觀察，所以先放著，用幾次再說。
+   */
+  dayIntent: {
+    bonus: 12,
+  },
+
   freshness: {
     /** 在 excludeRecentDays 內造訪過的分數上限 */
     recentVisitCeiling: 0.3,

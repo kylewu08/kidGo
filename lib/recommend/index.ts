@@ -15,6 +15,7 @@ import { ageInMonths } from "@/lib/schedule/napStage";
 import { applyStage3 } from "./diversity";
 import { applyStage1, effectiveLimits } from "./filters";
 import { explain } from "./reasons";
+import { dayIntentBonus } from "./day-intent";
 import { effectiveStayMinutes } from "./stay";
 import { breakdownForChild, shouldSuppressPreference, totalScore } from "./scoring";
 import { buildTimeline, forecastPeak, formatClock } from "./timeline";
@@ -113,6 +114,17 @@ function scorePlace(
 
   const weakest = perChild.reduce((min, cur) => (cur.score < min.score ? cur : min));
 
+  /*
+   * 當日意圖的加分（ADR-0026）加在加權總分**之外**。
+   *
+   * 它是地點層級的常數，對每個小孩都一樣，所以不影響「取最低分的那個
+   * 小孩」的選擇——加在最後與加在每個小孩身上結果相同，加在最後比較清楚。
+   *
+   * 這一項**不受 §7.4 的偏好抑制影響**：抑制是為了不讓學來的偏好在雨天
+   * 壓死室內選項，而這是使用者看著今天的天氣自己按的。
+   */
+  const intentBonus = dayIntentBonus(place, context);
+
   // 「候選 / 已驗證」由造訪紀錄導出，不存成欄位（§6.2）
   const status = visits.some((v) => v.placeId === place.id) ? "verified" : "candidate";
 
@@ -133,7 +145,7 @@ function scorePlace(
   return {
     place,
     slot: null,
-    score: weakest.score,
+    score: weakest.score + intentBonus,
     scoreBreakdown: weakest.breakdown,
     perChildScores: perChild.map((p) => ({ childId: p.child.id, score: p.score })),
     drive,
@@ -200,6 +212,7 @@ export {
   type CoverageScenario,
 } from "./coverage";
 export { effectiveStayMinutes } from "./stay";
+export { dayIntentBonus } from "./day-intent";
 export { breakdownForChild, totalScore, shouldSuppressPreference } from "./scoring";
 export { explain, REASON_THRESHOLDS } from "./reasons";
 export { formatClock, driveFor, buildTimeline } from "./timeline";

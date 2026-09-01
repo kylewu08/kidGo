@@ -6,6 +6,8 @@ import type { Recommendation } from "@/lib/recommend";
 import { mapsUrl } from "@/lib/places/maps-link";
 import { buildToday } from "@/lib/today/build";
 import { resolveTarget } from "@/lib/today/target";
+import { DAY_INTENT_CATEGORIES, type DayIntent } from "@/lib/domain/day-intent";
+import { DayIntentPicker } from "./day-intent-picker";
 import { ResponseButtons } from "./response-buttons";
 
 /** 標題也要跟著跨日，不然分頁上寫「今天」而內容是明天的。 */
@@ -36,13 +38,25 @@ const DEFAULT_AVAILABLE_UNTIL = "18:00";
 
 const WEEKDAYS = ["日", "一", "二", "三", "四", "五", "六"];
 
-export default async function TodayPage() {
+/** 只認得清單裡的值，其餘一律當成沒選——網址參數是使用者可以亂打的。 */
+function parseIntent(raw: string | undefined): DayIntent | null {
+  if (!raw) return null;
+  return raw in DAY_INTENT_CATEGORIES ? (raw as DayIntent) : null;
+}
+
+export default async function TodayPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ intent?: string }>;
+}) {
+  const intent = parseIntent((await searchParams).intent);
   const now = new Date();
   const data = await buildToday({
     now,
     availableUntil: DEFAULT_AVAILABLE_UNTIL,
     cwaApiKey: process.env.CWA_API_KEY,
     routesApiKey: process.env.GOOGLE_ROUTES_API_KEY,
+    dayIntent: intent,
   });
 
   if (data.status.kind !== "ok" || !data.result) {
@@ -144,6 +158,8 @@ export default async function TodayPage() {
           </div>
         </dl>
       </header>
+
+      <DayIntentPicker current={intent} />
 
       {/* §10.3.5：路況降級必須明示，不得靜默使用低信心估值 */}
       {data.driveNotice && (
