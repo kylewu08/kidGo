@@ -5,9 +5,14 @@ import type { Place } from "@/lib/db/schema";
 import type { Recommendation } from "@/lib/recommend";
 import { mapsUrl } from "@/lib/places/maps-link";
 import { buildToday } from "@/lib/today/build";
+import { resolveTarget } from "@/lib/today/target";
 import { ResponseButtons } from "./response-buttons";
 
-export const metadata = { title: "今天去哪 · KidGo" };
+/** 標題也要跟著跨日，不然分頁上寫「今天」而內容是明天的。 */
+export async function generateMetadata() {
+  const target = resolveTarget(new Date(), DEFAULT_AVAILABLE_UNTIL);
+  return { title: `${target.kind === "tomorrow" ? "明天" : "今天"}去哪 · KidGo` };
+}
 
 /** 天氣、路況、時間都會變，不能靜態預先產生 */
 export const dynamic = "force-dynamic";
@@ -45,6 +50,16 @@ export default async function TodayPage() {
   }
 
   const { result } = data;
+  const isTomorrow = data.target.kind === "tomorrow";
+  /*
+   * 全頁共用同一個「今天／明天」用語。
+   *
+   * 第一版只改了標題，內文仍然寫「今天建議」「今天條件受限」「今天太熱」
+   * ——標題說明天、內文說今天，那不是排版問題是**誠實問題**（憲法第 8 條）。
+   * 集中成一個變數，就不會再漏掉某一句。
+   */
+  const dayWord = isTomorrow ? "明天" : "今天";
+  const at = data.target.timestamp;
   const primary = result.slots.find((s) => s.slot === "primary") ?? null;
 
   /*
@@ -53,21 +68,27 @@ export default async function TodayPage() {
    * 採納率是 §9.3 的長期主力訊號；分母被重新整理灌大之後，系統會以為
    * 自己的建議一直被無視，於是壓低那個類別的權重——只因為使用者多按了
    * 兩次重新整理。kind 用 "opened" 標明它不是推播送出的那種。
+   *
+   * **明天的建議完全不寫入。** 那件事還沒發生，「去了／沒去」無從回答；
+   * 而且推播上線後明天早上會自己產生一筆，先寫就重複了。
+   * 晚上看明天是唯讀預覽——這是刻意的取捨：少一點功能，換採納率乾淨。
    */
-  const dateKey = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
-  const suggestion = await upsertTodaySuggestion(
-    dateKey,
-    "opened",
-    {
-      primaryPlaceId: primary?.place.id ?? null,
-      backupPlaceId: result.slots.find((s) => s.slot === "backup")?.place.id ?? null,
-      explorePlaceId: result.slots.find((s) => s.slot === "explore")?.place.id ?? null,
-      suggestedDeparture: primary?.suggestedDeparture ?? null,
-      suggestedReturn: primary?.suggestedReturn ?? null,
-      noOutingReason: result.noOutingReason,
-    },
-    now,
-  );
+  const dateKey = `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())}`;
+  const suggestion = isTomorrow
+    ? null
+    : await upsertTodaySuggestion(
+        dateKey,
+        "opened",
+        {
+          primaryPlaceId: primary?.place.id ?? null,
+          backupPlaceId: result.slots.find((s) => s.slot === "backup")?.place.id ?? null,
+          explorePlaceId: result.slots.find((s) => s.slot === "explore")?.place.id ?? null,
+          suggestedDeparture: primary?.suggestedDeparture ?? null,
+          suggestedReturn: primary?.suggestedReturn ?? null,
+          noOutingReason: result.noOutingReason,
+        },
+        now,
+      );
 
   const primaryRec = result.slots.find((s) => s.slot === "primary") ?? null;
   const backupRec = result.slots.find((s) => s.slot === "backup") ?? null;
@@ -80,17 +101,18 @@ export default async function TodayPage() {
           ← 回首頁
         </Link>
         <h1 className="text-[1.75rem] leading-none font-semibold tracking-tight">
-          今天去哪
+          {isTomorrow ? "明天去哪" : "今天去哪"}
         </h1>
 
         {/* 條件列。數字用等寬，重新整理時才不會左右跳動 */}
         <dl className="flex flex-wrap items-baseline gap-x-4 gap-y-1 text-sm text-muted">
           <div className="flex items-baseline gap-1.5">
             <dt className="sr-only">日期</dt>
+            {/* 日期用**目標日**，不是此刻——晚上看明天時這裡必須是明天 */}
             <dd className="tnum">
-              {now.getMonth() + 1}/{now.getDate()}
+              {at.getMonth() + 1}/{at.getDate()}
             </dd>
-            <span>週{WEEKDAYS[now.getDay()]}</span>
+            <span>週{WEEKDAYS[at.getDay()]}</span>
           </div>
           {data.currentWeather && (
             <>
@@ -113,8 +135,12 @@ export default async function TodayPage() {
             </>
           )}
           <div className="flex items-baseline gap-1.5">
-            <dt>可用到</dt>
-            <dd className="tnum text-foreground">{data.availableWindow.end}</dd>
+            <dt>{isTomorrow ? "時段" : "可用到"}</dt>
+            <dd className="tnum text-foreground">
+              {isTomorrow
+                ? `${data.availableWindow.start}–${data.availableWindow.end}`
+                : data.availableWindow.end}
+            </dd>
           </div>
         </dl>
       </header>
@@ -129,16 +155,27 @@ export default async function TodayPage() {
       {/* §7.4 防線一：受限情境下偏好權重歸零 */}
       {result.preferenceSuppressed && (
         <p className="rounded-xl bg-surface px-4 py-3 text-sm text-muted">
-          今天條件受限，已暫時忽略你們家的偏好，讓所有選項以原始分數競爭。
+          {dayWord}條件受限，已暫時忽略你們家的偏好，讓所有選項以原始分數競爭。
         </p>
       )}
 
       {result.slots.length === 0 ? (
         /* §9.1：不得沉默，也不得降低標準硬推 */
         <section className="rounded-2xl bg-surface px-5 py-6 flex flex-col gap-2.5">
-          <h2 className="text-lg font-semibold">今天不要出門</h2>
+          <h2 className="text-lg font-semibold">
+            {isTomorrow ? "明天建議不要出門" : "今天不要出門"}
+          </h2>
           <p className="text-sm leading-relaxed">
-            {result.noOutingReason ?? "今天沒有適合的地點。"}
+            {/*
+              「今天不要出門」的說明由推薦引擎產生（describeNoOuting），
+              字串裡寫死了「今天」。那組模板依憲法第 9 條要與推播共用，
+              不該由 UI 改寫，所以這裡只換開頭那兩個字。
+
+              **這是個接縫不是解法。** 正確的做法是讓引擎知道自己在為哪一天
+              產出——但那要改 RecommendContext，屬於「先討論再改資料模型」。
+              推播上線時會遇到同一個問題（第二則推播要講下午），到時候一起解。
+            */}
+            {(result.noOutingReason ?? "今天沒有適合的地點。").replace(/^今天/, dayWord)}
           </p>
           <p className="text-xs leading-relaxed text-muted">
             這也是一個答案——它省下了糾結的成本。系統不會為了給出建議而降低標準。
@@ -153,7 +190,7 @@ export default async function TodayPage() {
          * 清單而不是一個決定。這裡的層級差異是在還原決策層已經做過的判斷。
          */
         <div className="flex flex-col gap-4">
-          {primaryRec && <PrimaryCard rec={primaryRec} />}
+          {primaryRec && <PrimaryCard rec={primaryRec} dayWord={dayWord} />}
           {backupRec && <BackupCard rec={backupRec} />}
           {exploreRec && <ExploreCard rec={exploreRec} />}
         </div>
@@ -162,17 +199,24 @@ export default async function TodayPage() {
       {/* ADR-0021：參考欄不是第四個推薦，必須連同剔除理由一起呈現 */}
       {data.referenceNote && (
         <section className="rounded-xl border border-dashed border-surface-line px-4 py-3.5 flex flex-col gap-1">
-          <p className="text-xs tracking-[0.08em] text-muted">今天不行，但改天可以</p>
+          <p className="text-xs tracking-[0.08em] text-muted">{dayWord}不行，但改天可以</p>
           <p className="text-sm font-medium">{data.referenceNote.result.place.name}</p>
           <p className="text-xs text-muted">
-            {`今天${REJECTION_LABEL[data.referenceNote.rejectedBy] ?? "條件不符"}，所以沒有進入建議。`}
+            {`${dayWord}${REJECTION_LABEL[data.referenceNote.rejectedBy] ?? "條件不符"}，所以沒有進入建議。`}
           </p>
           {/* 參考欄照定義就是「你還不知道存在的地方」，最需要這個連結 */}
           <WhereLink place={data.referenceNote.result.place} />
         </section>
       )}
 
-      <ResponseButtons suggestionId={suggestion.id} response={suggestion.response} />
+      {suggestion ? (
+        <ResponseButtons suggestionId={suggestion.id} response={suggestion.response} />
+      ) : (
+        /* 明天的預覽沒有回饋——那件事還沒發生 */
+        <p className="text-xs leading-relaxed text-muted">
+          明天早上再打開就會變成今天的建議，那時才會問你後來去了沒。
+        </p>
+      )}
 
       <p className="text-xs leading-relaxed text-muted opacity-80">
         {data.placeCount} 個地點 → 硬過濾後剩 {result.scored.length} 個
@@ -271,7 +315,7 @@ function Trip({ rec, big }: { rec: Recommendation; big?: boolean }) {
  * 使用者週六早上要的不是「哪裡不錯」，是「幾點出門」。
  * 所以它是版面上最大的東西，比地點名稱還大。
  */
-function PrimaryCard({ rec }: { rec: Recommendation }) {
+function PrimaryCard({ rec, dayWord }: { rec: Recommendation; dayWord: string }) {
   return (
     <section className="relative overflow-hidden rounded-2xl bg-surface">
       {/* 左側的實色軸線。不用陰影分層——陰影在深色模式幾乎看不見 */}
@@ -280,7 +324,7 @@ function PrimaryCard({ rec }: { rec: Recommendation }) {
       <div className="flex flex-col gap-4 py-5 pl-6 pr-5">
         <div className="flex items-baseline justify-between gap-3">
           <span className="text-xs font-medium tracking-[0.08em] text-accent">
-            今天建議
+            {dayWord}建議
           </span>
           <span className="text-xs text-muted">
             {rec.status === "verified" ? "去過" : "還沒去過"}

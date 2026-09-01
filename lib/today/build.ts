@@ -24,6 +24,7 @@ import {
 import { fetchDriveMinutes } from "@/lib/routes/matrix";
 import { departureBucket } from "@/lib/routes/cache-key";
 import { fetchCwaForecast } from "@/lib/weather/cwa";
+import { resolveTarget, type DayTarget } from "./target";
 import type { CountyName } from "@/lib/weather/townships";
 
 /**
@@ -47,6 +48,12 @@ export type TodayStatus =
 
 export interface TodayData {
   status: TodayStatus;
+  /**
+   * 這份建議是給哪一天的。可用時間窗過了就是明天（§9.1）。
+   * **明天的建議是唯讀預覽**：不建立 suggestion、不顯示回饋按鈕——
+   * 那件事還沒發生，而採納率是 §9.3 的長期主力訊號，不能預先寫入。
+   */
+  target: DayTarget;
   home: HomeBase | null;
   children: Child[];
   placeCount: number;
@@ -69,19 +76,24 @@ export interface BuildTodayOptions {
   routesApiKey: string | undefined;
 }
 
-const clock = (d: Date) =>
-  `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
-
 export async function buildToday(options: BuildTodayOptions): Promise<TodayData> {
   const { now, availableUntil } = options;
 
+  // 晚上打開時算明天。判斷邏輯在 target.ts，那裡全是時間邊界所以獨立測。
+  const target = resolveTarget(now, availableUntil);
+  // 引擎眼中的「現在」。明天的話是明天的窗口起點，不是此刻——
+  // 作息、天氣時段、車程查詢的出發時刻都得跟著移，否則會拿半夜的
+  // 路況去算早上的行程。
+  const at = target.timestamp;
+
   const empty = {
+    target,
     home: null,
     children: [],
     placeCount: 0,
     now,
     dayType: "weekend" as DayType,
-    availableWindow: { start: clock(now), end: availableUntil },
+    availableWindow: target.window,
     currentWeather: null,
     result: null,
     referenceNote: null,
@@ -109,8 +121,8 @@ export async function buildToday(options: BuildTodayOptions): Promise<TodayData>
    * 行事曆表尚未匯入，先依星期粗判（與 smoke-recommend.ts 同一個權宜）。
    * 連假要等 CalendarDay 有資料才準——那會讓車程係數整個不一樣。
    */
-  const dayType: DayType =
-    now.getDay() === 0 || now.getDay() === 6 ? "weekend" : "weekday";
+  // **依目標日期判斷**，不是今天——晚上看明天時，今天是平日而明天可能是週六。
+  const dayType: DayType = at.getDay() === 0 || at.getDay() === 6 ? "weekend" : "weekday";
 
   // --- 天氣 ---------------------------------------------------------------
   //
@@ -135,15 +147,14 @@ export async function buildToday(options: BuildTodayOptions): Promise<TodayData>
     };
   }
 
-  const availableWindow = { start: clock(now), end: availableUntil };
   const base: RecommendContext = {
-    timestamp: now,
+    timestamp: at,
     children,
     home: { lat: home.lat, lng: home.lng },
     weather,
     dayType,
     maxDriveMinutes: home.maxDriveMinutes,
-    availableWindow,
+    availableWindow: target.window,
     familyPreference,
     categoryPreferences,
   };
@@ -155,22 +166,26 @@ export async function buildToday(options: BuildTodayOptions): Promise<TodayData>
     visits,
     options.routesApiKey,
     now,
+    at,
   );
 
   const result = recommend(places, visits, { ...base, preciseDrive });
 
+  // 顯示的是**目標時段**的天氣，不是此刻的。晚上看明天早上的建議時，
+  // 標頭若寫現在的天氣，跟底下的推薦理由會對不起來。
   const currentWeather =
-    weather.slots.find((s) => s.startsAt.getTime() + 3 * 3600_000 > now.getTime()) ??
+    weather.slots.find((s) => s.startsAt.getTime() + 3 * 3600_000 > at.getTime()) ??
     null;
 
   return {
     status: { kind: "ok" },
+    target,
     home,
     children,
     placeCount: places.length,
     now,
     dayType,
-    availableWindow,
+    availableWindow: target.window,
     currentWeather,
     result,
     // 參考欄只挑三個槽位沒用到的類別——推一個跟主建議同類的不增加資訊。
@@ -196,6 +211,8 @@ async function resolvePreciseDrive(
   visits: Parameters<typeof recommend>[1],
   routesApiKey: string | undefined,
   now: Date,
+  /** 查路況要用的出發時刻。明天的建議要查明天早上，不是此刻。 */
+  departAt: Date,
 ): Promise<{
   preciseDrive: Map<string, { outboundMinutes: number; returnMinutes: number }> | undefined;
   notice: string | null;
@@ -219,7 +236,7 @@ async function resolvePreciseDrive(
 
   try {
     const outbound = await legMinutes(
-      shortlist.map((r) => ({ rec: r, departAt: now })),
+      shortlist.map((r) => ({ rec: r, departAt })),
       base,
       "outbound",
       routesApiKey,
@@ -239,7 +256,7 @@ async function resolvePreciseDrive(
     const returnRequests = shortlist.map((r) => {
       const out = outbound.get(r.place.id) ?? r.drive.outboundMinutes;
       const leaveAt = new Date(
-        now.getTime() + (out + r.place.typicalDurationMinutes) * 60_000,
+        departAt.getTime() + (out + r.place.typicalDurationMinutes) * 60_000,
       );
       return { rec: r, departAt: leaveAt };
     });
