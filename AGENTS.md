@@ -140,7 +140,7 @@ commit 訊息與 ADR 的規則見 [`CONTRIBUTING.md`](CONTRIBUTING.md)。
 | `lib/db/`、`lib/domain/` | ✅ v1.0。§11 的領域參數 |
 | `lib/recommend/` | ✅ 三階段、七因子、防同溫層、理由分流、參考欄、覆蓋率診斷、當日意圖 |
 | `lib/weather/`、`lib/routes/` | ✅ CWA 與 Google Routes 都接通，路況有快取 |
-| `lib/import/` | ✅ 3 個 adapter、1405 筆地點、冪等已用真實資料驗證 |
+| `lib/import/` | ✅ 4 個 adapter、1492 筆地點、冪等已用真實資料驗證 |
 | `lib/today/` | ✅ 組裝層（推播排程之後會共用） |
 | `app/settings/` | ✅ 出發點、小孩、家庭偏好 |
 | `app/today/` | ✅ 落地頁 |
@@ -149,7 +149,7 @@ commit 訊息與 ADR 的規則見 [`CONTRIBUTING.md`](CONTRIBUTING.md)。
 | 推播 | 🔜 需要 PWA 先做完 |
 | 快速標記 | 🔜 必須搭在推播回饋之後（[ADR-0018](docs/adr/0018-quick-marking-not-preference-swiping.md)） |
 
-`npm test` 400 個全過、`npm run lint` 無警告、`npx tsc --noEmit` 無錯、`npm run build` 成功。
+`npm test` 411 個全過、`npm run lint` 無警告、`npx tsc --noEmit` 無錯、`npm run build` 成功。
 
 ### 下一步：PWA 基礎（§9.4）
 
@@ -162,15 +162,21 @@ Service Worker（Web Push 的必要條件）。
 
 ### 資料的現況與缺口
 
-1405 筆：一般公園 684、圖書館 616、共融／特色遊戲場 105。**只有三個類別。**
+1492 筆：一般公園 684、圖書館 616、共融／特色遊戲場 105、博物館 87。
+**四個類別**（[ADR-0027](docs/adr/0027-museums-admitted.md)）。
 
-覆蓋率診斷（`scripts/diagnose-coverage.ts`）五個情境有三個未達標，
-缺口都指向同一件事：**室內選項只有圖書館一種**。
-連帶的後果是三個槽位常常填不滿——前三名不得同類別（§7.3），
-而掉一個類別就湊不齊。
+覆蓋率診斷（`scripts/diagnose-coverage.ts`）五個情境**剩一個未達標**：
+午後雷雨只有圖書館與博物館兩個類別存活。酷暑與家長疲勞在博物館進來後
+一起轉綠，原因相同——室內、有冷氣、家長負擔 1，正好是那兩個情境
+剔除公園之後缺的那一格。
+
+**停止條件是「類別 ≥ 3」，不是筆數。** 匯入新北 635 個公園對紅燈的
+貢獻是零，因為公園本來就有 684 個。要補的永遠是缺的那個類別。
 
 已知缺的來源：親子館 201 筆等 TGOS 座標；基隆市沒有公園的開放資料集；
-海邊／農場／步道一筆都沒有（所以當日意圖的「想去遠一點的」按了沒東西）。
+室內遊樂場需 Google Places。步道 107 筆、農場 18 筆、海邊 4 筆都抓到了，
+但 ADR-0027 量測後決定不收——步道對幼兒過不了適齡與家長負擔，
+另外兩個量太少。所以當日意圖的「想去遠一點的」按了仍然沒東西。
 
 ### 已知的規格缺口
 
@@ -187,7 +193,10 @@ Service Worker（Web Push 的必要條件）。
 ### 待決清單
 
 - 需求補充 01 的三處修正（停止條件、30 天快取矛盾、「想去」的角色）
-- 首頁重做與深色模式（討論到一半，見 session 紀錄）
+  ⚠️ **這份文件不在版控裡**，2026-09-02 換機時確認遺失。§B 可從
+  `lib/recommend/coverage.ts` 的註解反推；§A（Google Places 匯入，
+  也是午後雷雨紅燈的解法方向）與 §C（快速標記）只剩被引用的痕跡
+- 首頁重做與深色模式（討論到一半，**內容只在本機 session 紀錄裡，未進版控**）
 - 停留時間是否根本不該是地點的屬性（[ADR-0025](docs/adr/0025-attention-span-caps-stay.md) 末段）
 - 午睡衝突從警示改為排序因子（使用者真正的約束是「12:00 前到家」，不是車程幾分鐘）
 - 手動新增地點的**形態**（[ADR-0024](docs/adr/0024-manual-places-allowed.md) 只確立可以做）
