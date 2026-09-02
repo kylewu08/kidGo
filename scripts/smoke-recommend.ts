@@ -11,7 +11,7 @@
  *   npx vite-node --config vitest.config.mts --root . \
  *     scripts/smoke-recommend.ts 2026-08-29T09:00 18:00
  *
- * 出發點、小孩、地點都讀資料庫。匯入器尚未實作，所以目前地點會是空的。
+ * 出發點、小孩、地點都讀資料庫。地點由 scripts/import-places.ts 匯入。
  */
 
 import Database from "better-sqlite3";
@@ -90,7 +90,7 @@ const places = (db.prepare("select * from places").all() as Record<string, unkno
 );
 
 if (places.length === 0) {
-  console.error("資料庫裡還沒有地點。匯入器尚未實作（Phase 1 下一項）。");
+  console.error("資料庫裡還沒有地點。先跑 scripts/import-places.ts 匯入。");
   process.exit(1);
 }
 
