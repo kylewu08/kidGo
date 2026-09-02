@@ -34,3 +34,9 @@ ADR 一旦寫下就不修改內容。決定變了就寫新的一份，把舊的�
 | [0019](0019-per-row-admission-test-northern-taiwan.md) | 匯入改為逐筆入場測試，範圍限北部四縣市 | 已採納 | 2026-08-28 |
 | [0020](0020-library-admitted-on-category.md) | 圖書館加入類別豁免清單，並改寫該清單的判準 | 已採納 | 2026-08-29 |
 | [0021](0021-reference-note-for-transient-rejections.md) | 輸出增加「參考欄」，只收當日條件造成的剔除 | 已採納 | 2026-08-29 |
+| [0022](0022-docker-hub-over-ghcr.md) | 映像改推 Docker Hub，因為 DSM 憑證對 compose 無效 | **已被 0023 取代**（尚未實際部署過） | 2026-08-31 |
+| [0023](0023-public-image-without-source.md) | **映像公開但不含原始碼，回到 GHCR**（多階段建置） | 已採納 | 2026-09-01 |
+| [0024](0024-manual-places-allowed.md) | 允許手動新增地點，但覆蓋率診斷只計算匯入資料 | 已採納 | 2026-09-01 |
+| [0025](0025-attention-span-caps-stay.md) | 停留時長由小孩的專注度封頂 | 已採納 | 2026-09-02 |
+| [0026](0026-day-intent.md) | 加入「今天想去哪一類」，用選項不用 AI | 已採納（ADR 內文寫「尚未實作」，實作於 `af443b4`） | 2026-09-02 |
+| [0027](0027-museums-admitted.md) | 觀光景點只收博物館，museum 加入豁免清單 | 已採納 | 2026-09-02 |
