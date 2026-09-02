@@ -25,10 +25,39 @@ git push → GitHub Actions 建映像 → 推到 GHCR（公開）
 
 ---
 
+## 〇、這個環境的前提：Mac 與 NAS 不同網段
+
+**整份文件之所以全程用網頁介面，是因為 shell 這條路根本走不通。**
+先講清楚，否則每次談部署都會重新踩一次。
+
+| | 位址 |
+|---|---|
+| 開發機（Mac） | `192.168.0.119` |
+| NAS（DS720+） | `192.168.1.116` |
+
+**不同網段**，所以 ping、SSH（22）、DSM（5000／5001）**全部不通**。
+這與人在家或在外面無關，換位置也沒用。
+
+唯一的進入點是 **QuickConnect 網頁**，而**QuickConnect 不轉發 SSH**。
+於是任何需要 `docker login` 或 shell 的方案在這台機器上都做不到——
+這正是 [ADR-0022](docs/adr/0022-docker-hub-over-ghcr.md) 繞了一大圈、
+最後由 [ADR-0023](docs/adr/0023-public-image-without-source.md) 改用
+公開映像收尾的根本原因。§四的「拉映像回 `denied`」只寫了結論，
+這裡是它的前一層。
+
+> 哪天 Mac 與 NAS 進到同一個網段，`sudo docker login` 就會變成可行選項，
+> 屆時映像可以改回私有。**在那之前不要再評估任何需要 SSH 的做法。**
+
+專案在 NAS 上的位置是 `/volume1/Kyle Grace/kidgo`，**不是** `/volume1/docker/`
+（使用者的容器專案都放在 `Kyle Grace` 共用資料夾底下）。compose 已改用
+相對路徑 `./data`，所以實際上不再依賴這個路徑——但看 File Station 時要知道往哪找。
+
+---
+
 ## 一、只需要做一次的設定
 
 > NAS 全程用 DSM 網頁介面（File Station + Container Manager）完成。
-> **1-3 若失敗就會需要 SSH**——理由見那一節。
+> **1-3 若失敗就會需要 SSH**——理由見那一節，以及上面的〇。
 
 ### 1-1 把 GHCR 的 package 設為公開
 
