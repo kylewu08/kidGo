@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 import { getHomeBase, getStoredFamilyPreference, listChildren } from "@/lib/db/queries";
+import { AddToHomeScreen } from "./add-to-home-screen";
 
 export const dynamic = "force-dynamic";
 
@@ -25,9 +26,22 @@ export default async function Home() {
         <p className="text-sm opacity-70">這個週末帶小孩去哪</p>
       </header>
 
+      {/*
+        §9.4 要求「首次設定流程**必須**引導加入主畫面」，所以它放在設定
+        入口這一頁，而不是 /today。/today 的工作是給答案（P3），
+        在那裡擺一個裝機提示會壓過主建議。
+
+        已加入主畫面時它會自己縮成一行確認，不需要手動關掉。
+      */}
+      <AddToHomeScreen />
+
+      {/*
+        「還缺推播」原本寫在這裡，但 AddToHomeScreen 現在也講同一件事，
+        兩個框疊在一起等於講兩次。推播的狀態交給上面那張卡片——
+        它同時處理「為什麼收不到」與「你可以先做什麼」，這裡只講已經好的部分。
+      */}
       <div className="rounded-xl border border-dashed border-black/20 dark:border-white/25 p-4 text-sm leading-relaxed opacity-75">
-        推薦引擎、匯入器與落地頁都已就緒。還缺推播——
-        在那之前，你得自己打開這個 App 才看得到建議。
+        推薦引擎、匯入器與落地頁都已就緒——現在就能用「今天去哪」試整套引擎。
       </div>
 
       {/*
