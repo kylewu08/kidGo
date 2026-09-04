@@ -158,32 +158,39 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 
 commit 訊息與 ADR 的規則見 [`CONTRIBUTING.md`](CONTRIBUTING.md)。
 
-## 目前狀態（2026-09-02）
+## 目前狀態（2026-09-04）
 
 **已部署上線**：`https://kidgo.kylewu.org`（Synology NAS，`git push` 後五分鐘自動更新）。
 
 | 區域 | 狀態 |
 |------|------|
 | `lib/db/`、`lib/domain/` | ✅ v1.0。§11 的領域參數 |
-| `lib/recommend/` | ✅ 三階段、七因子、防同溫層、理由分流、參考欄、覆蓋率診斷、當日意圖 |
+| `lib/recommend/` | ✅ 三階段、七因子、防同溫層、理由分流、參考欄、覆蓋率診斷、當日意圖、供給診斷 |
 | `lib/weather/`、`lib/routes/` | ✅ CWA 與 Google Routes 都接通，路況有快取 |
 | `lib/import/` | ✅ 4 個 adapter、1492 筆地點、冪等已用真實資料驗證 |
 | `lib/today/` | ✅ 組裝層（推播排程之後會共用） |
 | `app/settings/` | ✅ 出發點、小孩、家庭偏好 |
 | `app/today/` | ✅ 落地頁 |
 | 部署 | ✅ GHCR 公開映像 + Watchtower（[ADR-0023](docs/adr/0023-public-image-without-source.md)） |
-| **PWA 基礎** | 🔜 **下一項**。§9.4 是推播的前置條件 |
-| 推播 | 🔜 需要 PWA 先做完 |
+| **PWA 基礎** | 🚧 manifest 與圖示 ✅、「加入主畫面」引導 ✅、**Service Worker 未做** |
+| 推播 | 🔜 需要 Service Worker 先做完 |
 | 快速標記 | 🔜 必須搭在推播回饋之後（[ADR-0018](docs/adr/0018-quick-marking-not-preference-swiping.md)） |
 
-`npm test` 411 個全過、`npm run lint` 無警告、`npx tsc --noEmit` 無錯、`npm run build` 成功。
+`npm test` 419 個全過、`npm run lint` 無警告、`npx tsc --noEmit` 無錯、`npm run build` 成功。
 
-### 下一步：PWA 基礎（§9.4）
+### 下一步：PWA 的第三件——Service Worker（§9.4）
 
 §9.4 標明「必讀」：**iOS 的 Web Push 只在 PWA 被加入主畫面後可用**。
-`public/` 目前只有 Next 的預設 SVG。要做三件：manifest 與圖示、
-「加入主畫面」引導（§9.4 硬性要求，且未完成前須明講推播不會運作）、
-Service Worker（Web Push 的必要條件）。
+三件事已經做了兩件：manifest 與圖示（`357323b`）、「加入主畫面」引導
+（`79230af`，§9.4 硬性要求，且未完成前須明講推播不會運作）。
+
+**剩 Service Worker**——它是 Web Push 的必要條件（`push` 事件只在 SW 裡收得到），
+也是 P9「離線可用」在瀏覽器端唯一的落點。`push_subscriptions` 資料表
+（`lib/db/schema.ts:479`）已經存在但還沒有任何寫入路徑。
+
+⚠️ 未驗事項：Next 發的是標準化的 `mobile-web-app-capable` 而非舊的
+`apple-mobile-web-app-capable`。**只有真的用 iPhone 加一次主畫面才驗得掉，
+容器裡驗不了。**
 
 **PWA 不是順手做的美化，是推播的前置條件。**
 
@@ -198,7 +205,16 @@ Service Worker（Web Push 的必要條件）。
 剔除公園之後缺的那一格。
 
 **停止條件是「類別 ≥ 3」，不是筆數。** 匯入新北 635 個公園對紅燈的
-貢獻是零，因為公園本來就有 684 個。要補的永遠是缺的那個類別。
+貢獻是零，因為公園本來就有 684 個。要補的永遠是缺的那個類別——
+[ADR-0028](docs/adr/0028-proximity-supply-diagnosis.md) 之後還要加一句：
+**也可能是缺的那個距離。**
+
+供給診斷（同一支腳本，`lib/recommend/proximity.ts`）問的是覆蓋率前面那一層：
+**還沒開始過濾之前，住家半徑內有幾張牌。** 起因是使用者連用三天後說
+「就是那兩三個都不會變」——量測後發現同類別內七個因子有六個是常數，
+但真正的原因是**那個類別在近距離內只有一個候選**。所以停止條件多了
+`minPerCategory: 2`：三個類別各一個，在類別數上達標，實際每一格
+永遠是同一個地點。`singletons` 列出的就是下一次匯入該瞄準的目標。
 
 已知缺的來源：親子館 201 筆等 TGOS 座標；基隆市沒有公園的開放資料集；
 室內遊樂場需 Google Places。步道 107 筆、農場 18 筆、海邊 4 筆都抓到了，
