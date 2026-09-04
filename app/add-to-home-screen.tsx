@@ -2,6 +2,8 @@
 
 import { useEffect, useState, useSyncExternalStore } from "react";
 
+import { useIsClient } from "./use-is-client";
+
 /**
  * 「加入主畫面」引導（設計架構書 §9.4）
  *
@@ -12,9 +14,9 @@ import { useEffect, useState, useSyncExternalStore } from "react";
  *
  * 所以這不是一個可以忽略的小提示，是設定流程的一部分。
  *
- * **關於誠實（P8）**：現在推播不會運作有**兩個獨立原因**——伺服器端的
- * 推播還沒實作，以及這台裝置沒加入主畫面。只講後者會讓人以為「加了就
- * 收得到」，那是假的。兩個都講，而且分開講，這樣推播上線時只要拿掉一段。
+ * **關於誠實（P8）**：週末早晨那則現在仍然不會送出，但原因已經換了一半——
+ * 訂閱與送出做好了（見 `EnablePush`），缺的是排程。分開講的好處在這裡
+ * 兌現：只要改掉最後那一段，其餘不用動。
  */
 
 /** Chrome 系的安裝提示事件。TS 的 lib 沒有這個型別。 */
@@ -64,20 +66,10 @@ function subscribeInstalled(onChange: () => void) {
   };
 }
 
-/** 伺服器端沒有瀏覽器可問，一律回 false，掛載後由 client 快照修正。 */
-const noopSubscribe = () => () => {};
-
 export function AddToHomeScreen() {
-  /*
-   * 這個產品的頁面是伺服器渲染的，而「有沒有加入主畫面」只有瀏覽器知道。
-   * 用這一組把「是否已在瀏覽器裡」變成可讀的值，掛載前一律不畫東西——
-   * 猜錯會造成 hydration 不一致，而症狀是整塊區域悄悄變成空白。
-   */
-  const isClient = useSyncExternalStore(
-    noopSubscribe,
-    () => true,
-    () => false,
-  );
+  // 掛載前一律不畫東西的理由見 useIsClient。推播卡片用的是同一組判斷，
+  // 所以它從這個元件抽出去了。
+  const isClient = useIsClient();
   const installed = useSyncExternalStore(subscribeInstalled, detectInstalled, () => false);
 
   const [promptEvent, setPromptEvent] = useState<BeforeInstallPromptEvent | null>(null);
@@ -114,7 +106,7 @@ export function AddToHomeScreen() {
       <p className="rounded-xl border border-accent/30 bg-accent/[0.07] px-4 py-3 text-sm leading-relaxed">
         <span className="font-medium text-accent">✓ 已加入主畫面</span>
         <span className="opacity-75">
-          　推播的平台前置條件已滿足。功能上線後這台裝置就收得到。
+          　推播的平台前置條件已滿足。接著在下面那張卡片開啟推播。
         </span>
       </p>
     );
@@ -175,11 +167,13 @@ export function AddToHomeScreen() {
 
       {/*
         P8：不能讓人以為做完這一步就會收到推播。
-        推播上線後刪掉這一段即可，其餘不用動。
+
+        訂閱與送出已經可以用了（下面那張卡片），所以這一段從「推播還沒做」
+        改成講**還缺的那一半**：週末早晨的排程。排程上線後刪掉這一段即可。
       */}
       <p className="border-t border-warn/25 pt-3 text-sm leading-relaxed opacity-70">
-        ⚠️ <strong>推播功能本身還在開發中。</strong>
-        這一步是它的前置條件，現在先做不會白做。
+        ⚠️ <strong>週末早晨那則還不會自動送出</strong>——排程尚未實作。
+        訂閱與通知本身已經可以用，加入主畫面之後可以先送一則測試通知驗證。
       </p>
     </section>
   );

@@ -1,7 +1,9 @@
 import Link from "next/link";
 
 import { getHomeBase, getStoredFamilyPreference, listChildren } from "@/lib/db/queries";
+import { readVapidConfig } from "@/lib/push/vapid";
 import { AddToHomeScreen } from "./add-to-home-screen";
+import { EnablePush } from "./enable-push";
 
 export const dynamic = "force-dynamic";
 
@@ -34,6 +36,17 @@ export default async function Home() {
         已加入主畫面時它會自己縮成一行確認，不需要手動關掉。
       */}
       <AddToHomeScreen />
+
+      {/*
+        推播訂閱。放在加入主畫面的**下面**是刻意的順序——iOS 要先裝起來，
+        `window.PushManager` 才存在，反過來的話 iPhone 使用者會先看到
+        一張說「這個瀏覽器不支援」的卡片，而那個結論是錯的。
+
+        公鑰在**請求時**從環境變數讀出來傳下去。不用 NEXT_PUBLIC_：
+        那是建置期替換，而映像在 GitHub Actions 上建，那裡沒有 NAS 的 .env
+        ——理由寫在 lib/push/vapid.ts。
+      */}
+      <EnablePush vapidPublicKey={readVapidConfig(process.env)?.publicKey ?? null} />
 
       {/*
         「還缺推播」原本寫在這裡，但 AddToHomeScreen 現在也講同一件事，

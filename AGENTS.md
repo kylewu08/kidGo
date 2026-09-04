@@ -172,27 +172,34 @@ commit 訊息與 ADR 的規則見 [`CONTRIBUTING.md`](CONTRIBUTING.md)。
 | `app/settings/` | ✅ 出發點、小孩、家庭偏好 |
 | `app/today/` | ✅ 落地頁 |
 | 部署 | ✅ GHCR 公開映像 + Watchtower（[ADR-0023](docs/adr/0023-public-image-without-source.md)） |
-| **PWA 基礎** | 🚧 manifest 與圖示 ✅、「加入主畫面」引導 ✅、**Service Worker 未做** |
-| 推播 | 🔜 需要 Service Worker 先做完 |
+| **PWA 基礎** | ✅ manifest 與圖示、「加入主畫面」引導、Service Worker（[ADR-0029](docs/adr/0029-service-worker-for-push-only.md)） |
+| 推播 | 🚧 訂閱與送出 ✅、**週末早晨的排程與文案模板未做**（§9.1） |
 | 快速標記 | 🔜 必須搭在推播回饋之後（[ADR-0018](docs/adr/0018-quick-marking-not-preference-swiping.md)） |
 
-`npm test` 419 個全過、`npm run lint` 無警告、`npx tsc --noEmit` 無錯、`npm run build` 成功。
+`npm test` 435 個全過、`npm run lint` 無警告、`npx tsc --noEmit` 無錯、`npm run build` 成功。
 
-### 下一步：PWA 的第三件——Service Worker（§9.4）
+### 下一步：第一則推播的排程與文案（§9.1）
 
-§9.4 標明「必讀」：**iOS 的 Web Push 只在 PWA 被加入主畫面後可用**。
-三件事已經做了兩件：manifest 與圖示（`357323b`）、「加入主畫面」引導
-（`79230af`，§9.4 硬性要求，且未完成前須明講推播不會運作）。
+PWA 三件都做完了，訂閱與送出也通了（`lib/push/`、`app/enable-push.tsx`、
+`public/sw.js`，[ADR-0029](docs/adr/0029-service-worker-for-push-only.md)）。
+**缺的是最後一段：週六日早晨 07:30 自動送出。**
 
-**剩 Service Worker**——它是 Web Push 的必要條件（`push` 事件只在 SW 裡收得到），
-也是 P9「離線可用」在瀏覽器端唯一的落點。`push_subscriptions` 資料表
-（`lib/db/schema.ts:479`）已經存在但還沒有任何寫入路徑。
+§9.1 的執行流程：取得天氣 → 判定日型 → 計算可用時間窗 → 執行推薦 →
+精算前 8 名車程 → 生成文案 → 送出。前五步 `lib/today/` 已經做完了，
+排程與文案模板是新的。三個要先決定的：
 
-⚠️ 未驗事項：Next 發的是標準化的 `mobile-web-app-capable` 而非舊的
-`apple-mobile-web-app-capable`。**只有真的用 iPhone 加一次主畫面才驗得掉，
-容器裡驗不了。**
+1. **排程跑在哪。** 容器內的 node 排程 vs NAS 的排程任務。前者跟著映像走、
+   後者要在 DSM 上手動設一次而且不會進版控
+2. **文案模板放哪。** §13.2 第 9 條：規則模板，不使用 AI 生成。
+   §9.1 還要求「今天不要出門」是合法輸出，需要獨立的模板
+3. **§9.2 第二則的通知內回饋**（§13.2 第 8 條，不得導流）——
+   要在 `public/sw.js` 的 `notificationclick` 裡用 `event.action` 分流，
+   那個 handler 已經留好位置
 
-**PWA 不是順手做的美化，是推播的前置條件。**
+⚠️ 兩個只有真機驗得掉的未驗事項（容器裡驗不了）：
+Next 發的是標準化的 `mobile-web-app-capable` 而非舊的
+`apple-mobile-web-app-capable`；以及 iOS 加入主畫面之後到底收不收得到。
+**首頁那顆「送一則測試通知」就是為了驗第二件而存在的。**
 
 ### 資料的現況與缺口
 

@@ -102,10 +102,25 @@ GitHub → 你的頭像 → **Packages** → `kidgo` → Package settings →
 ```
 CWA_API_KEY=...
 GOOGLE_ROUTES_API_KEY=...
+VAPID_PUBLIC_KEY=...
+VAPID_PRIVATE_KEY=...
+VAPID_SUBJECT=mailto:你的信箱
 ```
 
-兩個都從本機的 `.env.local` 複製。`DATABASE_URL` **不要**放進去——
+前兩個從本機的 `.env.local` 複製。`DATABASE_URL` **不要**放進去——
 Dockerfile 已經把它設成 `/app/data/kidgo.db`，寫在 `.env` 裡只會有機會蓋錯。
+
+**VAPID 那兩把金鑰**在本機用 `node scripts/generate-vapid-keys.mjs` 產生，
+把輸出的兩行原樣貼上（設計架構書 §9.4）。沒設也起得來，只是首頁的推播卡片
+會顯示「伺服器還沒設定推播金鑰」。
+
+> ⚠️ **公鑰刻意不叫 `NEXT_PUBLIC_VAPID_PUBLIC_KEY`。** 那個前綴是
+> **建置期**替換，而映像是 GitHub Actions 建的、那裡讀不到這個 `.env`，
+> 結果會是瀏覽器拿到字串 `undefined`。公鑰改由伺服器在請求時讀出來傳給前端。
+>
+> ⚠️ **換金鑰會讓所有既有訂閱失效**（推播服務會回 403，而資料庫裡的舊訂閱
+> 看起來完全正常）。真要換的話，換完把 `push_subscriptions` 清空，
+> 讓每台裝置重新訂閱。
 
 **不需要 `CLOUDFLARE_TUNNEL_TOKEN`。** 這個專案不跑自己的 cloudflared，
 對外由既有那條隧道轉發到區網 IP，理由見 1-5。

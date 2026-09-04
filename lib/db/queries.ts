@@ -11,6 +11,10 @@ import "server-only";
 import { asc, eq, inArray, lt, sql } from "drizzle-orm";
 
 import {
+  subscriptionId,
+  type BrowserPushSubscription,
+} from "@/lib/push/subscription";
+import {
   isExpired,
   ROUTE_CACHE_MAX_AGE_DAYS,
   routeCacheId,
@@ -26,6 +30,7 @@ import {
   familyPreferences,
   homeBase,
   places,
+  pushSubscriptions,
   routeCache,
   suggestions,
   visits,
@@ -37,6 +42,7 @@ import {
   type FamilyPreference,
   type NewPlace,
   type Place,
+  type PushSubscription as PushSubscriptionRow,
   type Suggestion,
   type SuggestionResponse,
   type Visit,
@@ -371,4 +377,68 @@ export async function recordSuggestionResponse(
 /** 全部類別偏好。表很小（類別數固定），沒有分頁的必要。 */
 export async function listCategoryPreferences(): Promise<CategoryPreference[]> {
   return db.select().from(categoryPreferences);
+}
+
+// ---------------------------------------------------------------------------
+// PushSubscription（§9.4）
+// ---------------------------------------------------------------------------
+
+/**
+ * 寫入訂閱。**同一台裝置重新訂閱時覆蓋同一列**（主鍵取自 endpoint 的雜湊）。
+ *
+ * 不做「一台裝置只留一筆」的清理：同一個人可能同時用 iPhone 與桌機，
+ * 而伺服器分不出「換了瀏覽器的同一個人」與「另一台裝置」。失效的訂閱
+ * 由送出時的 404／410 自然淘汰（見 `lib/push/send.ts`），那是唯一
+ * 可靠的訊號。
+ */
+export async function savePushSubscription(
+  subscription: BrowserPushSubscription,
+  now: Date,
+): Promise<void> {
+  const row = {
+    id: subscriptionId(subscription.endpoint),
+    endpoint: subscription.endpoint,
+    p256dh: subscription.keys.p256dh,
+    auth: subscription.keys.auth,
+    createdAt: now.toISOString(),
+    lastUsedAt: null,
+  };
+
+  await db
+    .insert(pushSubscriptions)
+    .values(row)
+    .onConflictDoUpdate({
+      target: pushSubscriptions.id,
+      // createdAt 不覆寫：那是「這台裝置什麼時候第一次訂閱」，
+      // 重新訂閱不該讓它看起來像新裝置。
+      set: { endpoint: row.endpoint, p256dh: row.p256dh, auth: row.auth },
+    });
+}
+
+/** 全部訂閱。單一家庭、幾台裝置，沒有分頁的必要。 */
+export async function listPushSubscriptions(): Promise<PushSubscriptionRow[]> {
+  return db.select().from(pushSubscriptions);
+}
+
+/** 取消訂閱，或推播服務回報這個 endpoint 已失效時刪掉它。 */
+export async function deletePushSubscription(endpoint: string): Promise<void> {
+  await db
+    .delete(pushSubscriptions)
+    .where(eq(pushSubscriptions.id, subscriptionId(endpoint)));
+}
+
+/**
+ * 記下這個訂閱最後一次成功送達的時間。
+ *
+ * 用途是診斷：「明明訂閱了卻收不到」時，這個欄位分得出
+ * 「伺服器根本沒送」與「送了但裝置沒顯示」——兩者要查的地方完全不同。
+ */
+export async function markPushSubscriptionUsed(
+  endpoint: string,
+  now: Date,
+): Promise<void> {
+  await db
+    .update(pushSubscriptions)
+    .set({ lastUsedAt: now.toISOString() })
+    .where(eq(pushSubscriptions.id, subscriptionId(endpoint)));
 }
