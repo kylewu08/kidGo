@@ -211,6 +211,14 @@ export {
   type CoverageResult,
   type CoverageScenario,
 } from "./coverage";
+export {
+  diagnoseProximity,
+  PROXIMITY_BANDS,
+  PROXIMITY_TARGET,
+  type CategorySupply,
+  type ProximityBand,
+  type ProximityDiagnosis,
+} from "./proximity";
 export { effectiveStayMinutes } from "./stay";
 export { dayIntentBonus } from "./day-intent";
 export { breakdownForChild, totalScore, shouldSuppressPreference } from "./scoring";

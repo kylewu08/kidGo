@@ -10,7 +10,14 @@
 import Database from "better-sqlite3";
 
 import { CATEGORY_LABELS } from "@/lib/domain/category-priors";
-import { COVERAGE_TARGET, diagnoseCoverage, type CoverageBaseline } from "@/lib/recommend";
+import {
+  COVERAGE_TARGET,
+  diagnoseCoverage,
+  diagnoseProximity,
+  importedOnly,
+  PROXIMITY_TARGET,
+  type CoverageBaseline,
+} from "@/lib/recommend";
 import { DEFAULT_FAMILY_PREFERENCE } from "@/lib/db/family-preference-input";
 import type { Child, FamilyPreference, Place, Rating } from "@/lib/db/schema";
 
@@ -122,3 +129,57 @@ for (const r of diagnoseCoverage(places, baseline)) {
 }
 
 console.log(allMet ? "全部達標——覆蓋足夠，可以停止擴充資料。" : "有情境未達標，見上方建議補充的類別。");
+
+// ---------------------------------------------------------------------------
+// 供給面：住家半徑內有幾張牌
+//
+// 上面那份問「最惡劣情境下還有沒有東西存活」，是**過濾之後**的問題。
+// 這一份問它前面那一層：還沒開始過濾之前，你家附近本來就有什麼。
+//
+// 2026-09-04 加的，起因是實際使用三天後「推薦永遠是同樣那兩三個」。
+// 用引擎實測後，同類別內七個評分因子有六個是常數，唯一在區分的是車程——
+// 但那只是機制，真正的原因是那個類別在近距離內本來就只有一個候選。
+// 見 lib/recommend/proximity.ts 的說明。
+// ---------------------------------------------------------------------------
+
+const prox = diagnoseProximity(importedOnly(places), home, home.maxDrive);
+
+console.log("\n\n══ 住家半徑內的供給 ══\n");
+console.log(
+  `達標條件：類別 ≥ ${PROXIMITY_TARGET.minCategories}、` +
+    `且**每個類別至少 ${PROXIMITY_TARGET.minPerCategory} 個候選**\n` +
+    `（只有一個候選的類別，那一格永遠是同一個地點——不管評分怎麼調）\n`,
+);
+
+/**
+ * 補到指定的**顯示寬度**，不是字元數。
+ * CJK 與全形標點佔兩欄，用 padEnd 會讓中文長度不同的標籤各自歪掉。
+ */
+const displayWidth = (s: string) =>
+  [...s].reduce((w, ch) => w + (/[\u1100-\u115F\u2E80-\uA4CF\uAC00-\uD7A3\uF900-\uFAFF\uFE30-\uFE6F\uFF00-\uFF60\uFFE0-\uFFE6]/.test(ch) ? 2 : 1), 0);
+const padTo = (s: string, width: number) => s + " ".repeat(Math.max(0, width - displayWidth(s)));
+
+console.log(`${padTo("距離帶", 16)}${"地點".padStart(5)}${"類別".padStart(5)}   內容`);
+for (const b of [...prox.bands, prox.withinFamilyLimit]) {
+  const isLimit = b === prox.withinFamilyLimit;
+  const label = isLimit ? `車程上限 ${b.maxDriveMinutes} 分` : `${b.maxDriveMinutes} 分內`;
+  const detail = b.categories
+    .map((c) => `${CATEGORY_LABELS[c.category]} ${c.count}${c.canRotate ? "" : " ⚠只有一個"}`)
+    .join("、");
+  console.log(
+    `${padTo(label, 16)}${String(b.total).padStart(6)}${String(b.categoryCount).padStart(6)}   ${detail || "（無）"}`,
+  );
+}
+
+console.log();
+if (prox.withinFamilyLimit.meetsTarget) {
+  console.log("供給充足——半徑內每個類別都有得換。");
+} else if (prox.singletons.length > 0) {
+  console.log(
+    `⚠ 這些類別在半徑內只有一個候選，永遠推薦同一個地點：` +
+      prox.singletons.map((c) => CATEGORY_LABELS[c]).join("、"),
+  );
+  console.log("  補資料時要看的是「這個類別在你家附近有幾個」，不是全國總數。");
+} else {
+  console.log(`⚠ 半徑內只有 ${prox.withinFamilyLimit.categoryCount} 個類別，三個槽位填不滿。`);
+}
