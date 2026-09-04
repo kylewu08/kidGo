@@ -126,7 +126,11 @@ Dockerfile 已經把它設成 `/app/data/kidgo.db`，寫在 `.env` 裡只會有�
 ### 1-4 建立 Container Manager 專案
 
 DSM → **Container Manager** → 專案 → 新增，名稱 `kidgo`，
-路徑選 `/volume1/docker/kidgo`。
+路徑選 **1-2 建立的那個資料夾**（實際上是 `/volume1/Kyle Grace/kidgo`，
+不是 `/volume1/docker/`——見 §〇 結尾）。
+
+> ⚠️ **之後每次改 `.env`，都要回到這一頁做「停止 → 建置」**，
+> 不是「重新啟動」。理由見 §四最後一則。
 
 ### 1-5 Cloudflare Tunnel 加一個 Public Hostname
 
@@ -174,7 +178,8 @@ Cloudflare Zero Trust → Networks → Tunnels → 選既有的隧道 → Public
 sqlite3 data/kidgo.db "PRAGMA wal_checkpoint(TRUNCATE);"
 ```
 
-然後用 File Station 把 `data/kidgo.db` 上傳到 `/volume1/docker/kidgo/data/`。
+然後用 File Station 把 `data/kidgo.db` 上傳到**專案資料夾底下的 `data/`**
+（這台機器上是 `/volume1/Kyle Grace/kidgo/data/`）。
 容器重啟後 migration 會看到既有的 schema，不會重複套用。
 
 ---
@@ -286,3 +291,43 @@ TypeError: Cannot open database because the directory does not exist
 NAS 若是 ARM 機種（Realtek / Marvell），要把 workflow 裡的
 `platforms: linux/amd64` 改成 `linux/arm64`。在 NAS 上跑 `uname -m`
 可確認：`x86_64` → amd64。
+
+
+**改了 `.env`，容器卻還在用舊值**（2026-09-03，Routes 金鑰換新之後）。
+
+症狀是路況一直失敗，而錯誤訊息看起來像 Google 那邊的問題：
+
+```
+HTTP 400  "API key expired. Please renew the API key."
+reason: "API_KEY_INVALID"
+```
+
+**但金鑰是新的、剛產生的。** 真正在送出去的是那把已經被作廢的舊金鑰——
+容器啟動時就把環境變數固定下來了，之後改 `.env` 它不會知道。
+
+**重啟 Watchtower 沒有用**，這是最容易誤判的一步：
+
+    Watchtower 的流程：
+      檢查既有容器 → 拉新映像 → 用「既有容器的 env」建新容器
+                                        ↑
+                                舊值就是從這裡被帶過去的
+
+Watchtower **不讀 `docker-compose.yml`、也不讀 `.env`**——它是複製既有容器
+的設定去重建。所以連「推一個新 commit 讓它重建」都救不了，那條路同樣會把
+舊環境變數原封不動帶進新容器。
+
+正解是走 compose 那條路，讓它重新解析 `env_file`：
+
+| 動作 | 有沒有用 |
+|---|---|
+| Container Manager → **專案** → 停止 → **建置** | ✅ 走 `docker compose up`，重讀 `.env` |
+| 容器 → 重新啟動 | ❌ 同一個容器再跑一次，env 在建立時就固定了 |
+| 重啟 Watchtower | ❌ 完全無關 |
+
+查證方式：Container Manager → 容器 → `kidgo` → 詳細資料 → **環境**，
+直接看得到容器目前持有的值是新是舊。
+
+> 這一則與前兩則同型，但方向相反：前兩則是「本機有、容器沒有」，
+> 這一則是**「檔案改了、容器沒跟上」**。共同點是
+> **症狀都指向錯的地方**——這次它指向 Google，而問題在 NAS 上。
+
